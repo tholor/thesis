@@ -4,7 +4,7 @@ nullToNA <- function(x) {
 }
 
 basic_summary = function(df){
- #df = df.noshows
+ #df = df.hemo
   #get all the numeric columns
     cols_numeric = sapply(df, is.numeric)
     cols_int = sapply(df, is.integer)
@@ -72,22 +72,24 @@ basic_summary = function(df){
   null_perc = colSums(is.na(df.temp_text)) / nrow(df.temp_text)
   df.temp_text_res = data.frame(columnnames, type,null_values,null_perc)
   ##################
-  #get all date/double columns
+  #get all date columns (approach: POSIXct is double but not numeric in R)
     cols_double = sapply(df, is.double)
-    df.temp_doub = df[,cols_double]
-    number_of_columns = length(which(cols_double==TRUE))
-    columnnames = colnames(df)[cols_double]
+    cols_non_numeric = !(sapply(df, is.numeric))
+    cols_dates = Reduce("&", list(cols_double, cols_non_numeric))
+    df.temp_doub = df[,cols_dates]
+    number_of_columns = length(which(cols_dates))
+    columnnames = colnames(df)[cols_dates]
     type = rep("date", number_of_columns)  
     #measures
     if(number_of_columns == 1){
-      mean_date = as.character(mean(df.temp_doub, na.rm=TRUE))
-      max_date = as.character(max(df.temp_doub, na.rm=TRUE))
-      min_date = as.character(min(df.temp_doub, na.rm=TRUE))
+      mean_date = mean(df.temp_doub, na.rm=TRUE)
+      max_date = max(df.temp_doub, na.rm=TRUE)
+      min_date = min(df.temp_doub, na.rm=TRUE)
       null_values = sum(is.na(df.temp_doub))
       null_perc = sum(is.na(df.temp_doub)) / length(df.temp_doub) 
     }else {
       mean_date = t(as.data.frame(lapply(df.temp_doub, mean, na.rm=TRUE)))
-      colnames(mean_date) = c("mean_date")
+      if(number_of_columns > 0 ) colnames(mean_date) = c("mean_date")
       max_date = apply(df.temp_doub,2, max, na.rm=TRUE)
       min_date = apply(df.temp_doub,2, min, na.rm=TRUE)
       null_values = colSums(is.na(df.temp_doub))
