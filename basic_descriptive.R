@@ -4,7 +4,7 @@ nullToNA <- function(x) {
 }
 
 basic_summary = function(df){
- #df = df.hemo
+ #df = df.icds
   #get all the numeric columns
     cols_numeric = sapply(df, is.numeric)
     cols_int = sapply(df, is.integer)
@@ -34,6 +34,11 @@ basic_summary = function(df){
     df.temp_fact = (df[,cols_fact])
     number_of_columns = length(which(cols_fact==TRUE))
     columnnames = colnames(df)[cols_fact]
+    df.temp_fact_res = data.frame(number_of_levels=numeric(0),name_all_levels=character(0), name_lvl_1 =character(0),
+                                  obs_lvl_1=numeric(0),	name_lvl_2 = character(0),	obs_lvl_2=numeric(0),	
+                                  name_lvl_3 = character(0), obs_lvl_3 = numeric(0),	name_lvl_4 = character(0),	obs_lvl_4	= numeric(0),
+                                  name_lvl_5=character(0),	obs_lvl_5=numeric(0))
+ 
   if(number_of_columns>0){
     #measures
     type = rep("factor", number_of_columns)
@@ -58,9 +63,7 @@ basic_summary = function(df){
 
       #combining
         df.temp_fact_res = data.frame(columnnames,type,null_values,null_perc,number_of_levels,name_all_levels, top_5)
-    }else{
-    df.temp_fact_res = data.frame()
-  }
+    }
   #######################
   # get all free text columns
   # probably. still a bug /  counting factors as text? 
@@ -80,6 +83,7 @@ basic_summary = function(df){
     number_of_columns = length(which(cols_dates))
     columnnames = colnames(df)[cols_dates]
     type = rep("date", number_of_columns)  
+    df.temp_doub_res = data.frame(mean_date=numeric(0), max_date=numeric(0),min_date=numeric(0))
     #measures
     if(number_of_columns == 1){
       mean_date = mean(df.temp_doub, na.rm=TRUE)
@@ -87,16 +91,17 @@ basic_summary = function(df){
       min_date = min(df.temp_doub, na.rm=TRUE)
       null_values = sum(is.na(df.temp_doub))
       null_perc = sum(is.na(df.temp_doub)) / length(df.temp_doub) 
-    }else {
+      df.temp_doub_res = data.frame(columnnames, type, mean_date, max_date, min_date, null_values,null_perc)
+    }else if(number_of_columns > 1){
       mean_date = t(as.data.frame(lapply(df.temp_doub, mean, na.rm=TRUE)))
-      if(number_of_columns > 0 ) colnames(mean_date) = c("mean_date")
+      colnames(mean_date) = c("mean_date")
       max_date = apply(df.temp_doub,2, max, na.rm=TRUE)
       min_date = apply(df.temp_doub,2, min, na.rm=TRUE)
       null_values = colSums(is.na(df.temp_doub))
       null_perc = colSums(is.na(df.temp_doub)) / nrow(df.temp_doub)
+      df.temp_doub_res = data.frame(columnnames, type, mean_date, max_date, min_date, null_values,null_perc)    
     }
   #combining
-  df.temp_doub_res = data.frame(columnnames, type, mean_date, max_date, min_date, null_values,null_perc)
   #####
   #get all Booleans
   cols_bool = sapply(df, is.logical)
@@ -104,7 +109,7 @@ basic_summary = function(df){
   number_of_columns = length(which(cols_bool==TRUE))
   columnnames = colnames(df)[cols_bool]
   type = rep("Boolean", number_of_columns)
-  df.temp_bool_res = data.frame() 
+  df.temp_bool_res = data.frame(num_true=numeric(0),num_false=numeric(0))
   #measures
   if(number_of_columns == 1){
     num_true = length(subset(df.temp_bool, df.temp_bool ==TRUE))

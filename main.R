@@ -6,11 +6,15 @@ library(RMySQL)
 library(DBI)
 #library(tables)
 library(plyr)
+library(dplyr)
+library(GGally)
 Sys.setenv(JAVA_HOME='C:\\Program Files\\Java\\jre7')
 library(rJava)
 library(xlsx)
+library(tabplot)
+library(Hmisc)
 #library(lubridate)
-#library(ggplot2)
+library(ggplot2)
 source("helper.R")
 source("import_data.R")
 source("basic_descriptive.R")
@@ -68,3 +72,49 @@ all_cons <- dbListConnections(MySQL())
 for(con in all_cons){
   dbDisconnect(con)}
 
+##########################
+# some more basic analyses
+
+
+
+# 1. histogram / density
+qplot(heparin, data = subset(df.hemo,heparin < 10000), geom = "histogram", binwidth = 200)
+qplot(dialysate_flow, data = subset(df.hemo,dialysate_flow < 100000), geom = "histogram", binwidth = 10000)
+qplot(heparin, data = subset(df.hemo,heparin < 10000), geom = "histogram", binwidth = 200)
+qplot(heparin, data = subset(df.hemo,heparin < 10000), geom = "histogram", binwidth = 200)
+
+
+
+hist.data.frame(df.hemo)
+hist(df.hemo$heparin)
+# 2. outlier detection
+tbl.hemo = tbl_df(df.hemo)
+glimpse(tbl.hemo)
+sub_hemo = df.hemo[sample(1:nrow(df.hemo),100000,replace=FALSE),]
+qplot(heparin, data = sub_hemo, geom = "density")
+uni.plot(sub_hemo[,c(heparin,)) 
+# hemo
+tbl.hemo %>% 
+  ggplot(aes(x=heparin)) + 
+  geom_point(alpha=0.5) +
+ # facet_grid(~ shift) + 
+  #stat_smooth(method = lm, formula = y ~ poly(x,2)) + 
+  theme_bw()
+
+# 3. tableplots
+#removing character columns (cannot be handled by tableplot)
+df = df.patients
+cols_text= sapply(df, is.character)
+df = df[,!cols_text]
+df$dob= datetime2fac(df$dob, rng = range(df$dob, na.rm = TRUE))
+df$dod= datetime2fac(df$dod, rng = range(df$dod, na.rm = TRUE))
+df_prep = tablePrepare(df)
+tableplot(df_prep, sortCol = dob)
+
+df = df.hemo
+cols_text= sapply(df, is.character)
+df = df[,c("heparin","date","duration","dialysate_flow","blood_flow","fluid_removed","avg_arterial_pressure",
+           "avg_bp_systolic","avg_bp_diastolic","dialysate_name")]
+df$date= datetime2fac(df$date, rng = range(df$date, na.rm = TRUE))
+df_prep = tablePrepare(df)
+tableplot(df_prep, sortCol = date)
