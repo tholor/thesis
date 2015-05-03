@@ -1,3 +1,4 @@
+
 get_cols_of_type = function (table_name, schema, type, data_or_col_type){
   if(data_or_col_type == "data_type"){
     strQuery <- paste0("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 

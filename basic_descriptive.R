@@ -4,7 +4,7 @@ nullToNA <- function(x) {
 }
 
 basic_summary = function(df){
- #df = df.icds
+ df = df.hemo
   #get all the numeric columns
     cols_numeric = sapply(df, is.numeric)
     cols_int = sapply(df, is.integer)
@@ -15,19 +15,21 @@ basic_summary = function(df){
     #measures
   if(number_of_columns == 1){
     mean = mean(df.temp_num,  na.rm=TRUE)
+    std = sd(df.temp_num,  na.rm=TRUE)
     max = max(df.temp_num, na.rm=TRUE)
     min = min(df.temp_num, na.rm=TRUE)
     null_values = sum(is.na(df.temp_num))
     null_perc = sum(is.na(df.temp_num)) / length(df.temp_num)
   }else {
     mean = apply(df.temp_num, 2, mean, na.rm=TRUE)
+    std = apply(df.temp_num,2, sd, na.rm=TRUE)
     max = apply(df.temp_num,2, max, na.rm=TRUE)
     min = apply(df.temp_num,2, min, na.rm=TRUE)
     null_values = colSums(is.na(df.temp_num))
     null_perc = colSums(is.na(df.temp_num)) / nrow(df.temp_num)
   }
     #combining
-    df.temp_num_res = data.frame(columnnames,type, mean, max, min, null_values,null_perc)
+    df.temp_num_res = data.frame(columnnames,type, mean, std,max, min, null_values,null_perc)
   ################
   #get all factor columns
     cols_fact = sapply(df, is.factor)
