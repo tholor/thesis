@@ -4,7 +4,7 @@ nullToNA <- function(x) {
 }
 
 basic_summary = function(df){
- df = df.hemo
+ #df = df.hemo
   #get all the numeric columns
     cols_numeric = sapply(df, is.numeric)
     cols_int = sapply(df, is.integer)

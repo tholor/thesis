@@ -23,8 +23,9 @@ source("basic_descriptive.R")
 con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
 
 #import & convert all tables from MYSQL
-source("import_all_tables")
+source("import_all_tables.R")
 load("df_hemo")
+
  summary_patients = basic_summary(df.patients)
  summary_hemo = basic_summary(df.hemo)
  summary_icds= basic_summary(df.icds)
@@ -53,15 +54,22 @@ for(con in all_cons){
 # 1. HISTOGRAM / BOXPLOT
 #hemo
 #boxplot
-ggplot(df.hemo, aes(y = heparin, x = factor(1))) + geom_boxplot()
+ggplot(df.hemo, aes(y = dialysate_temp, x = factor(1))) + geom_boxplot()
+ggplot(subset(df.hemo,dialysate_temp < 100), aes(y = dialysate_temp, x = factor(1))) + geom_boxplot()
+ggplot(df.hemo, aes(y = avg_bp_systolic, x = factor(1))) + geom_boxplot()
+ggplot(subset(df.hemo,avg_bp_systolic < 500), aes(y = avg_bp_systolic, x = factor(1))) + geom_boxplot()
+
 #histo
 qplot(heparin, data = subset(df.hemo,heparin < 10000), geom = "histogram", binwidth = 200)
-qplot(dialysate_flow, data = subset(df.hemo,dialysate_flow < 10000), geom = "histogram", binwidth = 50)
+qplot(dialysate_flow, data = subset(df.hemo,dialysate_flow > 10000), geom = "histogram", binwidth = 100000)
 ggplot(df.hemo, aes(dialysate_name))+ geom_histogram() + facet_grid(~fk_location) +theme(axis.text.x = element_text(angle = 90, hjust = 1))
 qplot(heparin, data = subset(df.hemo,heparin < 10000), geom = "histogram", binwidth = 200)
 #density
 qplot(heparin, data = subset(df.hemo,heparin < 10000), geom = "density")
 qplot(dialysate_flow, data = subset(df.hemo,dialysate_flow < 10000), geom = "density")
+#scatter
+qplot(x=heparin, y= dialysate_flow, data = df.hemo, geom = "point")
+qplot(x=dialysate_temp, y= dialysate_flow, data = df.hemo, geom = "point")
 
 # 2. OUTLIER DETECTION
 glimpse(tbl.hemo)
