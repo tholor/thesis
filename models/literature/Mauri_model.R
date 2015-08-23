@@ -28,31 +28,34 @@ library(tidyr)
 con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
 strQuery = paste0("SELECT ROUND((age/10),0) as age_10, sex, copd_lung, cancer, GREATEST(mild_liver_disease, severe_liver_disease) as liver_disease, cardiovascular,
                   (CASE access_at_begin WHEN 'fistula_usable' THEN 'fistula/graft' WHEN 'graft_usable' THEN 'fistula/graft' ELSE 'catheter' END) as access_type,
-                  (CASE WHEN bmi < 20 THEN 'low' ELSE 'normal/high' END) AS bmi, resulting_autonomy, dead_first_year FROM 03_model_begin_to_1year")
+                  (CASE WHEN bmi < 20 THEN 'low' ELSE 'normal/high' END) AS bmi, resulting_autonomy,
+                  (CASE WHEN primary_renal_disease = 'hypertension' OR primary_renal_disease = 'other' THEN 'standard' ELSE primary_renal_disease END) as primary_renal_disease, 
+                  dead_first_year FROM 03_model_begin_to_1year")
 df.import = dbGetQuery(con, strQuery)
 #close DB-Connection
 dbDisconnect(con)
 
 #preprocess data
 str(df.import)
-df.import[, names(df.import) %in% c("sex", "copd_lung", "cancer", "liver_disease", "cardiovascular", "access_type", "bmi","resulting_autonomy", "dead_first_year")] = 
-  lapply(df.import[,names(df.import) %in% c("sex", "copd_lung", "cancer", "liver_disease", "cardiovascular", "access_type", "bmi", "resulting_autonomy","dead_first_year")], as.factor )
+df.import[, names(df.import) %in% c("sex", "copd_lung", "cancer", "liver_disease", "cardiovascular", "access_type", "bmi","resulting_autonomy","primary_renal_disease", "dead_first_year")] = 
+  lapply(df.import[,names(df.import) %in% c("sex", "copd_lung", "cancer", "liver_disease", "cardiovascular", "access_type", "bmi", "resulting_autonomy","primary_renal_disease","dead_first_year")], as.factor )
 df.import = df.import[complete.cases(df.import),]
 df.import$resulting_autonomy = relevel(df.import$resulting_autonomy, ref = "normal")
 df.import$bmi = relevel(df.import$bmi, ref = "normal/high")
+df.import$primary_renal_disease = relevel(df.import$primary_renal_disease, ref = "standard")
 
 #define outcome event
 df.import$outcome[df.import$dead_first_year == 0] = "Alive"
 df.import$outcome[df.import$dead_first_year == 1] = "Dead"
 df.import[,"outcome"] = as.factor(df.import[,"outcome"])
 df.import$dead_first_year = NULL
-sum(df.import$outcome=="Dead")
 
 #split data
-set.seed(21)
-indizesTrain = createDataPartition(df.import$outcome, p = 0.7, list = FALSE)
-train_data = df.import[indizesTrain,]
-test_data = df.import[-indizesTrain,]
+#set.seed(10)
+#indizesTrain = createDataPartition(df.import$outcome, p = 0.8, list = FALSE)
+#train_data = df.import[indizesTrain,]
+#test_data = df.import[-indizesTrain,]
+train_data = df.import
 
 #nrow(subset(train_data, access_type=="fistula/graft"& bmi == "normal/high"))
 
@@ -61,11 +64,11 @@ test_data = df.import[-indizesTrain,]
 #summary(logit.out)
 
 #with caret (incl. internal validation with 10-fold-cross-validation)
-  tc = trainControl("cv",10, classProbs = TRUE, summaryFunction = twoClassSummary)
-  logit.out = train(outcome ~ age_10+sex+copd_lung+cancer+liver_disease+cardiovascular+access_type+bmi+resulting_autonomy, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
-  logit_interact.out = train(outcome ~ age_10*cancer+sex+copd_lung+liver_disease+access_type*cardiovascular+access_type*bmi+resulting_autonomy, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
+  tc = trainControl("repeatedcv",number=5,repeats=10, classProbs = TRUE, summaryFunction = twoClassSummary)
+  #logit.out = train(outcome ~ age_10+sex+copd_lung+cancer+liver_disease+cardiovascular+access_type+bmi+resulting_autonomy, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
+  logit_interact.out = train(outcome ~ age_10*cancer+sex+copd_lung+liver_disease+access_type*cardiovascular+primary_renal_disease+access_type*bmi+resulting_autonomy, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
   summary(logit_interact.out)
-  
+  logit_interact.out
 #logit_glm = glm(outcome ~ age_10*cancer+sex+copd_lung+liver_disease+access_type*cardiovascular+access_type*bmi+resulting_autonomy, data=train_data, family=binomial(logit))
   #back = step(logit_glm)  
 #rf.out = train(outcome ~ age_10+sex+copd_lung+cancer+liver_disease+cardiovascular+access_type+bmi+resulting_autonomy, data=train_data, method="rf",trControl=tc, metric = "ROC")
@@ -93,7 +96,7 @@ curConfusionMatrix$overall[3]
 con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
 strQuery = paste0("SELECT age, sex, copd_lung, cancer, GREATEST(mild_liver_disease, severe_liver_disease) as liver_disease, cardiovascular,
                   (CASE access_at_begin WHEN 'fistula_usable' THEN 'fistula/graft' WHEN 'graft_usable' THEN 'fistula/graft' ELSE 'catheter' END) as access_type,
-                   (CASE WHEN bmi < 20 THEN 'low' ELSE 'normal/high' END) AS bmi, resulting_autonomy, 
+                   (CASE WHEN bmi < 20 THEN 'low' ELSE 'normal/high' END) AS bmi, resulting_autonomy, primary_renal_disease,
                   arthropathies, peripheral_artery_disease, cerebrovascular, diabetes_no_compl,
                   dead_first_year 
                   FROM 03_model_begin_to_1year

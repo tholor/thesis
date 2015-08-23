@@ -37,7 +37,10 @@ qplot(survival_months, data = df.table, geom = "histogram", binwidth = 1, xlab =
 
 
 #survival analysis
-strQuery = paste0("SELECT pid,dod,adj_fdod, last_dialysis_lib FROM dbo.dim_patients2 WHERE adj_fdod is not null AND (last_dialysis_lib is not null OR dod is not null)")
+strQuery = paste0("SELECT pat.pid,pat.dod,pat.adj_fdod, pat.last_dialysis_lib FROM dbo.dim_patients2 pat
+                  INNER JOIN 02_cohort_01 coh 
+                  ON pat.pid = coh.pid 
+                  WHERE pat.adj_fdod is not null AND (pat.last_dialysis_lib is not null OR pat.dod is not null)")
 patients = dbGetQuery(con, strQuery)
 
 patients$dod = as.Date(patients$dod)
@@ -59,6 +62,8 @@ str(surv_data)
 #survival curve
 kmsurvival <- survfit(Surv(time,event)~1, data = surv_data)
 summary(kmsurvival)
-plot(kmsurvival, xlab="Time (months)", xlim = c(0,60), ylab="Survival Probability",col=c("blue"))
-title("KM survival")
+plot(kmsurvival, xlab="Time (months)", xlim = c(0,15), ylab="Survival Probability",col=c("blue"))
+title("Kaplan Meier survival")
+grid(nx = 6, ny = 10, col = "gray", lty = "dotted",
+     lwd = par("lwd"), equilogs = TRUE)
 

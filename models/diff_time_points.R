@@ -7,18 +7,22 @@ source("models\\helper_functions.R")
 #______________________________________
 #SETTINGS
 #______________________________________
-data_source = "03_model_begin_to_1year" 
-featureSelection = "rfe" #one of rfe, back, elastic
+data_source= "03_model_exact" 
+featureSelection = "back" #one of rfe, back, elastic
 discretizeLabs = "False" #True/False
 convert_labs_diff = "False"
-method= "rf" #rf, nb, log
+method= "log" #rf, nb, log
 exclude_columns = c("start_year","adj_fdod","arterial_press_increased","bmi","ktv","venous_press_increased","connective_tissue","pain_chest","pain_elsewhere","pain_leg","hemiplegia","lymphoma","leukemia","down_syndrome","hiv")
 comment = "age cont, w ethnic,no start_year, w/eGFR"
-outcome_time = 12 #6 months, 1 year, 3 months
+assessment_time = 3 #number of month
+outcome_time = 15  #number of month
+confusion_table = "FALSE"
+use_existing_model="" #enter file path or leave blank
 #______________________________________
 # IMPORT DATA #
 #______________________________________
 df.import = query_data(data_source,outcome_time)
+df.import = subset(df.import, period==assessment_time)
 #_____________________________________
 # PREPROCESS
 # ____________________________________
@@ -32,25 +36,32 @@ df.preProcess = df.preProcess[complete.cases(df.preProcess),]
 #DESCRIPTIVE 
 #_________________________________
 
+if(use_existing_model!=""){
+  #load model
+  #curClassifier = ...
+  
+  #prepare train_data
+  train_data = df.preProcess
+}else{
 # ________________________________
 # FEATURE SELECTION
 # ________________________________
- variableImportance <- randomForest(outcome ~ ., data=df.preProcess, ntree=500, keep.forest=FALSE, importance=TRUE)
- varImpPlot(variableImportance, sort = TRUE)
- set.seed(21)
- subsets = c(seq(5,45,5))
+#variableImportance <- randomForest(outcome ~ ., data=df.preProcess, ntree=500, keep.forest=FALSE, importance=TRUE)
+#varImpPlot(variableImportance, sort = TRUE)
+set.seed(21)
+subsets = c(seq(5,45,5))
 
 #RANDOM FOREST
 if(method == "rf"){
-rfFuncs2= rfFuncs
-rfFuncs2$summary = twoClassSummary
-ctrl= rfeControl(functions= rfFuncs2, method = "repeatedcv", repeats=5, number=5, allowParallel=TRUE)
+  rfFuncs2= rfFuncs
+  rfFuncs2$summary = twoClassSummary
+  ctrl= rfeControl(functions= rfFuncs2, method = "repeatedcv", repeats=5, number=5, allowParallel=TRUE)
 }
 #NAIVE BAYES
 if(method == "nb"){
-nbFuncs2=nbFuncs
-nbFuncs2$summary = twoClassSummary
-ctrl= rfeControl(functions= nbFuncs2, method = "repeatedcv", repeats=5, number=5, allowParallel=TRUE)
+  nbFuncs2=nbFuncs
+  nbFuncs2$summary = twoClassSummary
+  ctrl= rfeControl(functions= nbFuncs2, method = "repeatedcv", repeats=5, number=5, allowParallel=TRUE)
 }
 
 if(!method %in% c("log")){
@@ -75,19 +86,19 @@ if(method == "log" & featureSelection=="back"){
   #logit_mauri_impr.out = train(outcome ~ pain+creatinine+hypertension+potassium+albumin+ethnic+age_10*cancer+sex+COPD_lung+liver_disease+access_type*cardiovascular+primary_renal_disease+access_type*bmi+resulting_autonomy, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
   
   #logit_all.out = train(outcome ~ ., data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
-#take all variables and do backward feature selection
- logit_glm = glm(outcome ~ ., data=train_data, family=binomial(logit))
- back = step(logit_glm)  
-logit_back_auto = train(back$formula, data= train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
-#logit_back(pretty good) = train(outcome ~ ethnic + cardiovascular + hypertension + primary_renal_disease + albumin + calcium + potassium + creatinine + pain_leg + pain_elsewhere + resulting_autonomy + age_10 + liver_disease + access_type, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
-#logit_back_1_yr = train(outcome ~ ethnic + cardiovascular + hypertension + dementia + 
-#                      ulcer + primary_renal_disease + albumin + potassium + creatinine + 
-#                      epogen_usage + access_flow_poor + resulting_autonomy + age_10 + 
-#                      liver_disease + pain, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
- 
-# logit= train(outcome ~ ethnic+cardiovascular+hypertension+primary_renal_disease+albumin+calcium+calcXphosph+phosphorus+potassium+
-#                            creatinine+epogen_usage+bp_problem+pain+resulting_autonomy+
-#                            age_10+liver_disease, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
+  #take all variables and do backward feature selection
+  logit_glm = glm(outcome ~ ., data=train_data, family=binomial(logit))
+  back = step(logit_glm)  
+  logit_back_auto = train(back$formula, data= train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
+  #logit_back(pretty good) = train(outcome ~ ethnic + cardiovascular + hypertension + primary_renal_disease + albumin + calcium + potassium + creatinine + pain_leg + pain_elsewhere + resulting_autonomy + age_10 + liver_disease + access_type, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
+  #logit_back_1_yr = train(outcome ~ ethnic + cardiovascular + hypertension + dementia + 
+  #                      ulcer + primary_renal_disease + albumin + potassium + creatinine + 
+  #                      epogen_usage + access_flow_poor + resulting_autonomy + age_10 + 
+  #                      liver_disease + pain, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
+  
+  # logit= train(outcome ~ ethnic+cardiovascular+hypertension+primary_renal_disease+albumin+calcium+calcXphosph+phosphorus+potassium+
+  #                            creatinine+epogen_usage+bp_problem+pain+resulting_autonomy+
+  #                            age_10+liver_disease, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
   curClassifier = logit_back_auto
   parameters = "none"
   AUC = curClassifier$results$ROC
@@ -103,7 +114,7 @@ if(method == "log" & featureSelection=="elastic"){
     subset(abs(coef.value) >0 & coef.name != "(Intercept)")
   elastic_formula = gsub("access_typefistula/graft_ready","access_type",
                          gsub("primary_renal_diseasediabetes","primary_renal_disease",
-                         gsub("1|limited|special care|Unknown","",elastic_features$coef.name))) %>%
+                              gsub("1|limited|special care|Unknown","",elastic_features$coef.name))) %>%
     unique() %>%
     paste(collapse="+")
   elastic_formula = as.formula(paste0("outcome ~ ", elastic_formula))                          
@@ -131,10 +142,10 @@ if(method == "rf"){
 }
 
 if(method =="svm"){
-svm.out = train(outcome ~ ., data=train_data, method="svmLinear",trControl=tc, metric = "ROC")
-curClassifier = svm.out
-parameters= "none"
-AUC =  curClassifier$results$ROC
+  svm.out = train(outcome ~ ., data=train_data, method="svmLinear",trControl=tc, metric = "ROC")
+  curClassifier = svm.out
+  parameters= "none"
+  AUC =  curClassifier$results$ROC
 }
 if(method == "nb"){
   naive_markov.out = train(outcome ~ ethnic+hypertension+pth+albumin+eGFR+ferritin+age+potassium+creatinine, data=train_data, method="nb",trControl=tc, metric = "ROC")
@@ -144,24 +155,32 @@ if(method == "nb"){
   naive_elastic_out = train(outcome ~ age+ethnic+cardiovascular+hypertension+dementia+ulcer+
                               primary_renal_disease+albumin+potassium+creatinine+bp_problem+resulting_autonomy+liver_disease+access_type+pain,
                             data=train_data, method="nb",trControl=tc, metric = "ROC")
- 
+  
   curClassifier = naive_all.out
   parameters = paste("LaPlace-correction=",naive_all.out$bestTune[1,1],", useKernel=",naive_all.out$bestTune[1,2])
   AUC =  curClassifier$results[curClassifier$results$fL==curClassifier$bestTune[1,1]&curClassifier$results$usekernel==curClassifier$bestTune[1,2],3]
 }
-curClassifier
-plot(curClassifier)
-write_results(curClassifier,AUC,discretizeLabs,df.preProcess,parameters,featureSelection,comment,outcome_time,"begin")
-#read summary
-oldSummary = read.table("C:\\Users\\Malte\\Dropbox\\FIM\\08 Masterarbeit\\06 Coding\\R\\output\\summary.csv", sep=";", header = TRUE)
+}#end else "use existing model"
 
 if(confusion_table == "TRUE"){
   train_data$prob_dead = predict(curClassifier,train_data,type="prob")$Dead
   myroc = pROC::roc(train_data$outcome, train_data$prob_dead)
   plot(myroc, print.thres = "best")
-  #currentScore = auc(myroc) 
+  currentScore = auc(myroc) 
   threshold = coords(myroc,x="best", best.method = "closest.topleft")[[1]] #get optimal cutoff threshold
   train_data$prediction = factor(ifelse(train_data$prob_dead > threshold, "Dead", "Alive") )
   ##Confusion Matrix 
   confusionMatrix(predCut,train_data$outcome, positive = "Alive")
+  if(use_existing_model!=""){
+   AUC = currentScore
+   parameters = ""
+  }
 }
+
+curClassifier
+plot(curClassifier)
+write_results(curClassifier,AUC,discretizeLabs,df.preProcess,parameters,featureSelection,comment,outcome_time,assessment_time)
+#read summary
+oldSummary = read.table("C:\\Users\\Malte\\Dropbox\\FIM\\08 Masterarbeit\\06 Coding\\R\\output\\summary.csv", sep=";", header = TRUE)
+
+
