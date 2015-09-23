@@ -1,26 +1,32 @@
 #IMPORT DATA
-query_data = function(table,outcome_time){
-con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
-strQuery = paste0("SELECT * FROM ",table)
-queried_data = dbGetQuery(con, strQuery)
-#get correct outcome
-strQuery = paste0("SELECT pid, period_of_death, last_period_observed FROM 01_death_periods")
-queried_outcomes = dbGetQuery(con, strQuery)
-#assess if patient is dead(=>1) within the horizon (outcome_time) or alive(=>0) or censored(=> NULL)
-queried_outcomes$outcome = ifelse(period_of_death<outcome_time,1,
-                              ifelse(period_of_death> outcome_time | last_observed> outcome_time,0,NULL))
-queried_outcomes$period_of_death = NULL
-queried_outcomes$last_period_observed = NULL
-merged_data = merge(queried_data, queried_outcomes, by="pid")
-#close DB-Connection
-dbDisconnect(con)
-return(merged_data)
+query_data_dyn = function(table,outcome_time,assessment_time){
+  con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
+  if(assessment_time == 0){
+    strQuery = paste0("SELECT * FROM ",table)
+  }else{
+  strQuery = paste0("SELECT * FROM ",table," WHERE period = ",assessment_time)
+  }
+  queried_data = dbGetQuery(con, strQuery)
+  #get correct outcome
+  strQuery = paste0("SELECT pid, period_of_death, last_period_observed FROM 01_death_periods")
+  queried_outcomes = dbGetQuery(con, strQuery)
+  #assess if patient is dead(=>1) within the horizon (outcome_time) or alive(=>0) or censored(=> NULL)
+  queried_outcomes$outcome = ifelse(queried_outcomes$period_of_death<=outcome_time,1,
+                                    ifelse(queried_outcomes$period_of_death>outcome_time,0,NA))
+  queried_outcomes$outcome=ifelse(is.na(queried_outcomes$period_of_death) & queried_outcomes$last_period_observed>=outcome_time,0,queried_outcomes$outcome)
+  queried_outcomes$period_of_death = NULL
+  queried_outcomes$last_period_observed = NULL
+  merged_data = merge(queried_data, queried_outcomes, by="pid")
+  #close DB-Connection
+  dbDisconnect(con)
+  return(merged_data)
 }
 
 #_________________________________
 # CONVERT DATA TYPES
 # ________________________________
 convert_data_types=function(data){
+  data = df.import
   str_comorb_features = c("diabetes_no_compl", 
                           "diabetes_with_compl", 
                           "chf", 
@@ -80,8 +86,8 @@ convert_data_types=function(data){
  data[,names(data) %in% c(str_comorb_features,str_compl_features)] = apply(data[,names(data) %in% c(str_comorb_features,str_compl_features)],2, replace_NAs)
  
   #drop some columns
-  data = select(data, -c(pid,fully_followed,mild_liver_disease,severe_liver_disease,access_at_begin))
- #temp: adj_fdod removed from row above
+  data = dplyr::select(data,-c(fully_followed,mild_liver_disease,severe_liver_disease,access_at_begin))
+ #temp: adj_fdod, pid removed from row above
  
   #convert to factors:
   data[, names(data) %in% c("art_ven_pressure_increased","sex","bmi","ethnic","resulting_autonomy","dead_first_year","epogen_usage","access_type","pain",str_comorb_features,"primary_renal_disease",str_compl_features)] = 
@@ -114,6 +120,90 @@ convert_data_types=function(data){
 return(data) 
 }
 
+#_________________________________
+# CONVERT DATA TYPES
+# ________________________________
+convert_data_types_dyn=function(data){
+  data = df.import
+  str_comorb_features = c("diabetes_no_compl", 
+                          "diabetes_with_compl", 
+                          "chf", 
+                          "cardiovascular",
+                          "peripheral_artery_disease",
+                          "hypertension",
+                          "COPD_lung",
+                          "dementia",
+                          "liver_disease",
+                          "down_syndrome",
+                          "arthropathies",
+                          "hepatitis_c",
+                          "connective_tissue",
+                          "hiv",
+                          "infarct",
+                          "ulcer",
+                          "hemiplegia",
+                          "leukemia",
+                          "lymphoma",
+                          "cancer",
+                          "benign_or_uncertain_tumor",
+                          "cerebrovascular")
+  
+  str_compl_features = c("access_problem",
+                         "access_flow_poor",
+                         "all_cramps",
+                         "bp_problem",
+                         "arterial_press_decreased",
+                         "arterial_press_increased",
+                         "multiple_needle_sticks",
+                         "venous_press_increased",
+                         "infiltration_needle",
+                         "pain_chest",
+                         "pain_leg",
+                         "pain_elsewhere",
+                         "nausea_vomiting",
+                         "headache",
+                         "fever",
+                         "loss_consciousness",
+                         "weight_gain_excessive")
+  
+  #adjust feature definition 
+  #data$age = data$age^2
+  data$resulting_autonomy=ifelse(data$resulting_autonomy=="some_assistance","normal",data$resulting_autonomy) #only temporary solution
+  data$ethnic = ifelse(data$ethnic=="Unknown" | data$ethnic == "American Indian/Alaskan Native" | is.na(data$ethnic), "Unknown", data$ethnic )
+  data$bmi = ifelse(data$bmi<20,"low","normal/high")
+  data$liver_disease = ifelse(data$mild_liver_disease ==1 | data$severe_liver_disease==1, 1,0)
+  data$access_type = ifelse(data$main_access_used == 'fistula' | data$main_access_used =='graft', 'fistula/graft_ready', data$main_access_used)
+  data$access_type = ifelse(data$access_type == 'catheter', 'catheter_or_not_ready',   data$access_type)
+  #data$primary_renal_disease = ifelse(is.na(data$primary_renal_disease),"other",data$primary_renal_disease)
+  data$pain = ifelse(data$pain_chest==1 | data$pain_leg==1 |data$pain_elsewhere ==1, 1,0)
+  data$art_ven_pressure_increased =  ifelse(data$arterial_press_increased ==1 | data$venous_press_increased==1, 1,0)
+  #data$start_year = as.numeric(substr(data$adj_fdod,1,4))
+  #edit null values for comorbidities (null -> 0)
+  replace_NAs = function(data){
+    data[is.na(data)]=0
+    return(data)
+  }
+  data[,names(data) %in% c(str_comorb_features,str_compl_features,"pain","art_ven_pressure_increased")] = apply(data[,names(data) %in% c(str_comorb_features,str_compl_features,"pain","art_ven_pressure_increased")],2, replace_NAs)
+  
+  #drop some columns
+  data = dplyr::select(data, -c(pid,period,from_date,to_date,mild_liver_disease,severe_liver_disease,main_access_used))
+  #temp: adj_fdod removed from row above
+  
+  #convert to factors:
+  data[, names(data) %in% c("art_ven_pressure_increased","sex","bmi","ethnic","resulting_autonomy","dead_first_year","epogen_usage","access_type","pain",str_comorb_features,"primary_renal_disease",str_compl_features)] = 
+    lapply(data[,names(data) %in% c("art_ven_pressure_increased","sex","bmi","ethnic","resulting_autonomy","dead_first_year","epogen_usage","access_type","pain",str_comorb_features,"primary_renal_disease",str_compl_features)], as.factor )
+  
+  #set standard level of factors
+  data$resulting_autonomy = relevel(data$resulting_autonomy, ref = "normal")
+  data$bmi = relevel(data$bmi, ref = "normal/high")
+  #data$primary_renal_disease = relevel(data$primary_renal_disease, ref = "other")
+
+  data$outcome[data$outcome== 0] = "Alive"
+  data$outcome[data$outcome == 1] = "Dead"
+  data[,"outcome"] = as.factor(data[,"outcome"])
+  return(data) 
+}
+
 #_______________________
 # discretize lab values
 # (from continous values to "in_range", "above","below")
@@ -134,9 +224,10 @@ discretize_labs = function(data){
 convert_labs_to_diff = function(data){
   #data$albumin = as.factor(ifelse(data$albumin>4,"in_range",ifelse(data$albumin> 3.5, "low","very_low")))
   #data$hgb = as.factor(ifelse((data$hgb >11| data$hgb  <10)&data$epogen_usage==1 | (data$hgb <12 &data$epogen_usage==0), "out_of_range","in_range")) # TO DO: check if 13 is correct
-  data$calcium = abs(data$calcium-8.95)
+  data$calcium = abs(data$calcium-9.2)
+  
   #mutate(potassium = ifelse(albumin<3.7, "low","in_range")
-  data$phosphorus = abs(data$phosphorus-9)
+  data$phosphorus = abs(data$phosphorus-4.5)
   #data$calcXphosph = as.factor(ifelse(data$calcXphosph>55, "high","in_range"))
   #data$ferritin = as.factor(ifelse( data$ferritin<200 &data$epogen_usage==1, "low","in_range"))
   #mutate(creatinine = ifelse(albumin<3.7, "low","in_range")
@@ -144,12 +235,35 @@ convert_labs_to_diff = function(data){
   return(data)
 }
 
+#______________
+# standardize all variables 
+#________________
+data = df.preProcess
+#prepare binary variables
+for(i in 1:ncol(data)){
+  if(is.factor(data[,i]) && nlevels(data[,i]) == 2){
+    data[,i]=(as.numeric(data[,i]) - mean(as.numeric(data[,i])-1))/2    
+    # long form: data[,i]=(as.numeric(data[,i])-1)+(1 - mean(as.numeric(data[,i])-1))/2    
+  }
+}
+#data$hypertension_stand=(as.numeric(data$hypertension) - mean(as.numeric(data$hypertension)-1))/2
+#mean(as.numeric(df.preProcess$dementia)-1)/2
+
+#preparce ordinal variables
+if ("resulting_autonomy" %in% names(data)) {
+  #convert to num
+  if(data$resulting_autonomy=="normal")data$resulting_autonomy=0
+  
+  #standardize
+  data$resulting_autonomy = data[,i]=(as.numeric(data[,i]) - mean(as.numeric(data[,i])-1))/nlevels(data$resulting_autonomy)     
+}
+#scale to mean zero and unit stand. dev.
 #__________________________________
 #Write results of classifier to xlsx 
 #__________________________________
 write_results = function(curClassifier,AUC,discretizeLabs,df.preProcess, parameters,typeFeatureSelection,comment,outcome_time, assessment_time){
   #typeFeatureSelection = "RFE"
-  #comment = "after 01_labs_closest_fdod"
+  #comment = "test_comment"
   time = as.character(Sys.time())
   classifier = curClassifier$modelInfo$label
   nObs = nrow(curClassifier$trainingData)
@@ -165,7 +279,7 @@ write_results = function(curClassifier,AUC,discretizeLabs,df.preProcess, paramet
     numFeaturesFinal = "all previous"
     featuresFinal = "all previous"
   }  
-  newRow = data.frame(time,outcome_time,assessment_time, comment, AUC, classifier,nObs,discretizeLabs, parameters,typeFeatureSelection, numFeaturesIn, featuresIn, numFeaturesSelected, featuresSelected, numFeaturesFinal, featuresFinal)
+  newRow = data.frame(time,assessment_time,outcome_time, comment, AUC, classifier,nObs,discretizeLabs, parameters,typeFeatureSelection, numFeaturesIn, featuresIn, numFeaturesSelected, featuresSelected, numFeaturesFinal, featuresFinal)
   oldSummary = read.table("C:\\Users\\Malte\\Dropbox\\FIM\\08 Masterarbeit\\06 Coding\\R\\output\\summary.csv", sep=";", header = TRUE)
   combinedSummary = rbind(oldSummary, newRow)
   write.table(combinedSummary, "C:\\Users\\Malte\\Dropbox\\FIM\\08 Masterarbeit\\06 Coding\\R\\output\\summary.csv", sep=";",row.names = FALSE)
@@ -185,19 +299,19 @@ getOtherOutcome = function(data_in){
 
 #NORMALIZATION??
 
-#Markov blanket
-#   learn.mb(df.preProcess, node="outcome",method = "gs" )
-#   learn.mb(df.preProcess, node="outcome",method = "iamb" )
-#   learn.nbr(df.preProcess, node="outcome",method = "mmpc")
-#  learn.nbr(df.preProcess, node="outcome",method = "si.hiton.pc")
+# #Markov blanket
+  learn.mb(df.preProcess, node="outcome",method = "gs" )
+  learn.mb(df.preProcess, node="outcome",method = "iamb" )
+  learn.nbr(df.preProcess, node="outcome",method = "mmpc")
+ learn.nbr(df.preProcess, node="outcome",method = "si.hiton.pc")
 
 #learn BN 
-#bn.gs = gs(df.preProcess)
-#plot(bn.hc, main = "Constraint-based algorithms")
-#bn.hc <- hc(df.preProcess)
-# bn.tabu = tabu(df.preProcess)
-# mb(bn.tabu,"outcome")
-# graphviz.plot(bn.tabu)
-# mb(bn.hc,"outcome")
-# graphviz.plot(bn.hc)
+bn.gs = gs(df.preProcess)
+plot(bn.hc, main = "Constraint-based algorithms")
+bn.hc <- hc(df.preProcess)
+bn.tabu = tabu(df.preProcess)
+mb(bn.tabu,"outcome")
+graphviz.plot(bn.tabu)
+mb(bn.hc,"outcome")
+graphviz.plot(bn.hc)
 

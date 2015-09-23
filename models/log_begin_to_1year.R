@@ -8,17 +8,19 @@ source("models\\helper_functions.R")
 #SETTINGS
 #______________________________________
 data_source = "03_model_begin_to_1year" 
-featureSelection = "rfe" #one of rfe, back, elastic
+featureSelection = "elastic" #one of rfe, back, elastic
 discretizeLabs = "False" #True/False
 convert_labs_diff = "False"
-method= "rf" #rf, nb, log
-exclude_columns = c("start_year","adj_fdod","arterial_press_increased","bmi","ktv","venous_press_increased","connective_tissue","pain_chest","pain_elsewhere","pain_leg","hemiplegia","lymphoma","leukemia","down_syndrome","hiv")
+method= "log" #rf, nb, log
+exclude_columns = c("dead_first_year","start_year","adj_fdod","arterial_press_increased","bmi","ktv","venous_press_increased","connective_tissue","pain_chest","pain_elsewhere","pain_leg","hemiplegia","lymphoma","leukemia","down_syndrome","hiv")
 comment = "age cont, w ethnic,no start_year, w/eGFR"
 outcome_time = 12 #6 months, 1 year, 3 months
+confusion_table = "FALSE"
+assessment_time = 0
 #______________________________________
 # IMPORT DATA #
 #______________________________________
-df.import = query_data(data_source,outcome_time)
+df.import = query_data_dyn(data_source,outcome_time,assessment_time)
 #_____________________________________
 # PREPROCESS
 # ____________________________________

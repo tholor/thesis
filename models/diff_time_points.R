@@ -1,45 +1,50 @@
 rm(list = ls())
 gc()
-setwd("C:\\Users\\Malte\\Dropbox\\FIM\\08 Masterarbeit\\06 Coding\\R")
+path= "C:\\Users\\Malte\\Dropbox\\FIM\\08 Masterarbeit\\06 Coding\\R"
+setwd(path)
 source("initialize_libraries.R")
 source("models\\helper_functions.R")
-
 #______________________________________
 #SETTINGS
 #______________________________________
-data_source= "03_model_exact" 
+use_existing_model="" #leave blank or enter file path to load model
 featureSelection = "back" #one of rfe, back, elastic
 discretizeLabs = "False" #True/False
-convert_labs_diff = "False"
+convert_labs_diff = "TRUE"
 method= "log" #rf, nb, log
-exclude_columns = c("start_year","adj_fdod","arterial_press_increased","bmi","ktv","venous_press_increased","connective_tissue","pain_chest","pain_elsewhere","pain_leg","hemiplegia","lymphoma","leukemia","down_syndrome","hiv")
-comment = "age cont, w ethnic,no start_year, w/eGFR"
-assessment_time = 3 #number of month
-outcome_time = 15  #number of month
+exclude_columns = c("bmi","with_TMA_six","with_TMA","ethnic","ferritin","ulcer","dead_first_year","start_year","calcium","adj_fdod","arterial_press_increased","pth","ktv","venous_press_increased","connective_tissue","pain_chest","pain_elsewhere","pain_leg","hemiplegia","lymphoma","leukemia","down_syndrome","hiv","hco3_bicarb","cholesterol","fully_followed")
+#"cancer","chf","cardiovascular","copd_lung","liver_disease","hypertension","infarct","diabetes_with_compl","diabetes_no_compl",
+exclude_columns = c(exclude_columns,"fever","loss_consciousness","weight_gain_excessive","pid")
+comment = "w/o ethnic,w/access_flow_poor, no bmi"
+assessment_time = 0#number of month
+outcome_time =12#number of month
 confusion_table = "FALSE"
-use_existing_model="" #enter file path or leave blank
+save_model="FALSE"
+standardize="FALSE"
+
 #______________________________________
 # IMPORT DATA #
 #______________________________________
-df.import = query_data(data_source,outcome_time)
-df.import = subset(df.import, period==assessment_time)
+data_source= ifelse(assessment_time==0,"03_model_begin_to_1year","03_model_exact") #was "03_model_exact_temp4"
+df.import = query_data_dyn(data_source,outcome_time,assessment_time)
+#df.import = subset(df.import, period==assessment_time)
 #_____________________________________
 # PREPROCESS
 # ____________________________________
-df.preProcess = convert_data_types(df.import) 
-#df.preProcess$start_year = df.preProcess$start_year-2005
-if(discretizeLabs == "True"){df.preProcess = discretize_labs(df.preProcess)}
-if(convert_labs_diff == "True"){df.preProcess = convert_labs_to_diff(df.preProcess)}
+if(assessment_time==0){ df.preProcess=convert_data_types(df.import) 
+}else{df.preProcess = convert_data_types_dyn(df.import) }
+if(discretizeLabs == "TRUE"){df.preProcess = discretize_labs(df.preProcess)}
+if(convert_labs_diff == "TRUE"){df.preProcess = convert_labs_to_diff(df.preProcess)}
+if(standardize=="TRUE"){df.preProcess = standardize_var(df.preProcess)}
 df.preProcess = df.preProcess[,!(names(df.preProcess) %in% exclude_columns)]
 df.preProcess = df.preProcess[complete.cases(df.preProcess),]
-# ________________________________
-#DESCRIPTIVE 
-#_________________________________
+# variableImportance <- randomForest(outcome ~ ., data=df.preProcess, ntree=500, keep.forest=FALSE, importance=TRUE)
+# varImpPlot(variableImportance, sort = TRUE)
+
 
 if(use_existing_model!=""){
   #load model
-  #curClassifier = ...
-  
+  load(paste0(path,"\\models\\saved\\",use_existing_model,".R"))  
   #prepare train_data
   train_data = df.preProcess
 }else{
@@ -65,7 +70,7 @@ if(method == "nb"){
 }
 
 if(!method %in% c("log")){
-  featProfile =rfe(select(df.preProcess,-outcome), df.preProcess$outcome ,sizes = subsets, rfeControl = ctrl, metric = "ROC")
+  featProfile =rfe(dplyr::select(df.preProcess,-outcome), df.preProcess$outcome ,sizes = subsets, rfeControl = ctrl, metric = "ROC")
   featProfile
   predictors(featProfile)
   featProfile$fit
@@ -113,8 +118,9 @@ if(method == "log" & featureSelection=="elastic"){
   elastic_features = data.frame(coef.name = dimnames(coeff_out)[[1]], coef.value = matrix(coeff_out)) %>%
     subset(abs(coef.value) >0 & coef.name != "(Intercept)")
   elastic_formula = gsub("access_typefistula/graft_ready","access_type",
-                         gsub("primary_renal_diseasediabetes","primary_renal_disease",
-                              gsub("1|limited|special care|Unknown","",elastic_features$coef.name))) %>%
+                         gsub("primary_renal_diseasediabetes|primary_renal_diseasehypertension|primary_renal_diseasesystemic|primary_renal_diseaseother","primary_renal_disease",
+                              gsub("sexM","sex",
+                              gsub("1|limited|special care|Unknown","",elastic_features$coef.name)))) %>%
     unique() %>%
     paste(collapse="+")
   elastic_formula = as.formula(paste0("outcome ~ ", elastic_formula))                          
@@ -148,29 +154,32 @@ if(method =="svm"){
   AUC =  curClassifier$results$ROC
 }
 if(method == "nb"){
-  naive_markov.out = train(outcome ~ ethnic+hypertension+pth+albumin+eGFR+ferritin+age+potassium+creatinine, data=train_data, method="nb",trControl=tc, metric = "ROC")
-  naive_markov_gs.out = train(outcome ~ hgb+ albumin+ calcXphosph+ eGFR+pth+ potassium+ creatinine+ ferritin+ age_10
-                              , data=train_data, method="nb",trControl=tc, metric = "ROC")
+  naive_markov.out = train(outcome ~ diabetes_with_compl+hypertension+hgb+calcXphosph+       potassium+           epogen_usage+       
+                           resulting_autonomy+  liver_disease+  pain , data=train_data, method="nb",trControl=tc, metric = "ROC")
+  naive_markov_gs.out = train(outcome ~ age+ cci+ hgb+ albumin+     calcXphosph+ potassium+ creatinine+ eGFR
+                        , data=train_data, method="nb",trControl=tc, metric = "ROC")
   
-  naive_elastic_out = train(outcome ~ age+ethnic+cardiovascular+hypertension+dementia+ulcer+
-                              primary_renal_disease+albumin+potassium+creatinine+bp_problem+resulting_autonomy+liver_disease+access_type+pain,
+  naive_elastic_out = train(outcome ~ age+ethnic+cardiovascular+hypertension+dementia+primary_renal_disease+albumin+potassium+creatinine+epogen_usage+bp_problem+resulting_autonomy+liver_disease+access_type+pain,
                             data=train_data, method="nb",trControl=tc, metric = "ROC")
   
-  curClassifier = naive_all.out
+  naive_elastic_no_ethnic = train(outcome ~ age+diabetes_with_compl+chf+cardiovascular+hypertension+primary_renal_disease+albumin+potassium+creatinine+epogen_usage+access_flow_poor+bp_problem+resulting_autonomy+liver_disease+access_type+pain,
+                            data=train_data, method="nb",trControl=tc, metric = "ROC")
+  
+  curClassifier = naive_elastic_out
   parameters = paste("LaPlace-correction=",naive_all.out$bestTune[1,1],", useKernel=",naive_all.out$bestTune[1,2])
   AUC =  curClassifier$results[curClassifier$results$fL==curClassifier$bestTune[1,1]&curClassifier$results$usekernel==curClassifier$bestTune[1,2],3]
 }
 }#end else "use existing model"
 
-if(confusion_table == "TRUE"){
+if(confusion_table == "TRUE" | use_existing_model!=""){
   train_data$prob_dead = predict(curClassifier,train_data,type="prob")$Dead
-  myroc = pROC::roc(train_data$outcome, train_data$prob_dead)
+  myroc = pROC::roc(train_data$outcome, train_data$prob_dead,auc=TRUE)
   plot(myroc, print.thres = "best")
-  currentScore = auc(myroc) 
+  currentScore = as.numeric(pROC::auc(myroc))
   threshold = coords(myroc,x="best", best.method = "closest.topleft")[[1]] #get optimal cutoff threshold
   train_data$prediction = factor(ifelse(train_data$prob_dead > threshold, "Dead", "Alive") )
   ##Confusion Matrix 
-  confusionMatrix(predCut,train_data$outcome, positive = "Alive")
+  confusionMatrix(train_data$prediction,train_data$outcome, positive = "Alive")
   if(use_existing_model!=""){
    AUC = currentScore
    parameters = ""
@@ -181,6 +190,21 @@ curClassifier
 plot(curClassifier)
 write_results(curClassifier,AUC,discretizeLabs,df.preProcess,parameters,featureSelection,comment,outcome_time,assessment_time)
 #read summary
-oldSummary = read.table("C:\\Users\\Malte\\Dropbox\\FIM\\08 Masterarbeit\\06 Coding\\R\\output\\summary.csv", sep=";", header = TRUE)
+oldSummary = read.table(paste0(path,"\\output\\summary.csv"), sep=";", header = TRUE)
+
+if(save_model==TRUE){
+  model_path=paste0(path,"\\models\\saved\\")
+  model_name = paste0(method,"_",featureSelection,"_",as.character(Sys.Date()),"_",assessment_time,"_to_",outcome_time,"_",round(AUC*1000),".R")
+  save(curClassifier,file=paste0(model_path,model_name))
+}
+
+#descriptive
+temp = dplyr::select(df.preProcess,-c(eGFR,age,potassium,creatinine,phosphorus,albumin,cci,hgb,calcXphosph))
+desc = gather(temp,variable, value) %>%
+  count(variable, value)
+summary(curClassifier)
+plot(train_data$outcome,train_data$primary_renal_disease, type ="h")
+plot(train_data$outcome, train_data$cci, type="h")
+qplot(cci, data = train_data, geom = "histogram", binwidth = 1 )
 
 
