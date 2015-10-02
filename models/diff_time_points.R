@@ -8,19 +8,22 @@ source("models\\helper_functions.R")
 #SETTINGS
 #______________________________________
 use_existing_model="" #leave blank or enter file path to load model
-featureSelection = "back" #one of rfe, back, elastic
+featureSelection = "elastic" #one of rfe, back, elastic, info_gain,manual
 discretizeLabs = "False" #True/False
-convert_labs_diff = "TRUE"
+convert_labs_diff = "FALSE"
 method= "log" #rf, nb, log
-exclude_columns = c("bmi","with_TMA_six","with_TMA","ethnic","ferritin","ulcer","dead_first_year","start_year","calcium","adj_fdod","arterial_press_increased","pth","ktv","venous_press_increased","connective_tissue","pain_chest","pain_elsewhere","pain_leg","hemiplegia","lymphoma","leukemia","down_syndrome","hiv","hco3_bicarb","cholesterol","fully_followed")
+exclude_columns = c("primary_renal_disease","bp_problem","hypertension","start_year","access_flow_poor","bmi","with_TMA","with_TMA_six","ethnic","ferritin","ulcer","dead_first_year","calcium","adj_fdod","arterial_press_increased","pth","ktv","venous_press_increased","connective_tissue","pain_chest","pain_elsewhere","pain_leg","hemiplegia","lymphoma","leukemia","down_syndrome","hiv","hco3_bicarb","cholesterol","fully_followed")
 #"cancer","chf","cardiovascular","copd_lung","liver_disease","hypertension","infarct","diabetes_with_compl","diabetes_no_compl",
-exclude_columns = c(exclude_columns,"fever","loss_consciousness","weight_gain_excessive","pid")
-comment = "w/o ethnic,w/access_flow_poor, no bmi"
-assessment_time = 0#number of month
-outcome_time =12#number of month
+exclude_columns = c(exclude_columns,"fever","loss_consciousness","weight_gain_excessive")
+comment = "no ethnic, no bmi, no access_flow_poor, no start_year,with pure_hypertension"
+assessment_time = 3#number of month
+outcome_time =15#number of month
 confusion_table = "FALSE"
 save_model="FALSE"
 standardize="FALSE"
+aggregate = "FALSE"
+write_to_db = "FALSE"
+topX = 10 # just applies to information_gain: use the Top X features
 
 #______________________________________
 # IMPORT DATA #
@@ -35,12 +38,19 @@ if(assessment_time==0){ df.preProcess=convert_data_types(df.import)
 }else{df.preProcess = convert_data_types_dyn(df.import) }
 if(discretizeLabs == "TRUE"){df.preProcess = discretize_labs(df.preProcess)}
 if(convert_labs_diff == "TRUE"){df.preProcess = convert_labs_to_diff(df.preProcess)}
-if(standardize=="TRUE"){df.preProcess = standardize_var(df.preProcess)}
 df.preProcess = df.preProcess[,!(names(df.preProcess) %in% exclude_columns)]
 df.preProcess = df.preProcess[complete.cases(df.preProcess),]
+if(aggregate=="TRUE"){df.preProcess = aggregate_var(df.preProcess)}
+if(standardize=="TRUE"){df.preProcess = standardize_var(df.preProcess)}
+if(write_to_db=="TRUE"){write_to_database(df.preProcess, paste0("02_cohort_from_r_at_",assessment_time))}
+df.preProcess = df.preProcess[,!(names(df.preProcess) %in% c("pid"))]
 # variableImportance <- randomForest(outcome ~ ., data=df.preProcess, ntree=500, keep.forest=FALSE, importance=TRUE)
 # varImpPlot(variableImportance, sort = TRUE)
-
+#correlation matrix
+# corData = df.preProcess[,!names(df.preProcess) %in% c("resulting_autonomy","primary_renal_disease","access_type")]
+# corData$outcome = as.numeric(corData$outcome)
+# corMat = as.data.frame(cor(corData))
+# write.table(corMat, file = "C:\\Users\\Malte\\Dropbox\\FIM\\08 Masterarbeit\\06 Coding\\R\\output\\correlation.csv", sep = ";")
 
 if(use_existing_model!=""){
   #load model
@@ -85,6 +95,14 @@ if(!method %in% c("log")){
 #with caret (incl. internal validation with 10x 5-fold-cross-validation)
 tc = trainControl("repeatedcv",number=5,repeats=10, classProbs = TRUE, summaryFunction = twoClassSummary)
 
+if(method == "log" & featureSelection=="manual"){
+  train_data = df.preProcess
+  logit_manual = train(outcome~uncontrolled_hypertension, data= train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
+  summary(logit_manual)
+  curClassifier = logit_manual
+  parameters = "none"
+  AUC = curClassifier$results$ROC
+}
 if(method == "log" & featureSelection=="back"){
   train_data = df.preProcess
   #logit_mauri.out = train(outcome ~ age_10*cancer+sex+COPD_lung+liver_disease+access_type*cardiovascular+primary_renal_disease+access_type*bmi+resulting_autonomy, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
@@ -130,6 +148,20 @@ if(method == "log" & featureSelection=="elastic"){
   #log_lasso = train(outcome ~ . , data = train_data, method="glmnet", family="binomial", trControl=tc, metric = "ROC")
   curClassifier = logit_lasso_form
   parameters = "alpha = 0.5"
+  AUC = curClassifier$results$ROC
+}
+
+if(method == "log" & featureSelection=="info_gain"){
+  #get features
+  train_data = df.preProcess
+  infoGain =  information.gain(outcome~., train_data)
+  infoGain = infoGain[order(infoGain$attr_importance,decreasing = TRUE),,drop=FALSE]
+  infoGain = infoGain[1:topX,,drop=FALSE]
+  info_formula = paste(row.names(infoGain), collapse="+")
+  info_formula = as.formula(paste0("outcome ~ ", info_formula)) 
+  logit = train(info_formula, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
+  curClassifier = logit
+  parameters = paste0("topX = ",topX) 
   AUC = curClassifier$results$ROC
 }
 
@@ -203,8 +235,27 @@ temp = dplyr::select(df.preProcess,-c(eGFR,age,potassium,creatinine,phosphorus,a
 desc = gather(temp,variable, value) %>%
   count(variable, value)
 summary(curClassifier)
-plot(train_data$outcome,train_data$primary_renal_disease, type ="h")
-plot(train_data$outcome, train_data$cci, type="h")
-qplot(cci, data = train_data, geom = "histogram", binwidth = 1 )
+
+#plot(train_data$outcome,as.factor(train_data$cci), type ="h")
+#plot(train_data$outcome, train_data$cci, type="h")
+#qplot(cci, data = train_data, geom = "histogram", binwidth = 1, colour = outcome )
+# 
+# cor(as.numeric(df.preProcess$diabetes_no_compl), as.numeric(df.preProcess$outcome))
+# cor(as.numeric(df.preProcess$diabetes_with_compl), as.numeric(df.preProcess$primary_renal_disease))
+# 
+# nrow(filter(df.preProcess, cci ==0 , outcome==1 ))/nrow(filter(df.preProcess, cci ==0))
+# nrow(filter(df.preProcess, cci == 1, outcome==1 ))/nrow(filter(df.preProcess, cci == 1))
+# nrow(filter(df.preProcess, cci == 2 , outcome==1 ))/nrow(filter(df.preProcess, cci == 2))
+# nrow(filter(df.preProcess, cci == 3, outcome==1 ))/nrow(filter(df.preProcess, cci == 3))
+# nrow(filter(df.preProcess, cci == 4, outcome==1 ))/nrow(filter(df.preProcess, cci == 4))
+# nrow(filter(df.preProcess, cci == 5, outcome==1 ))/nrow(filter(df.preProcess, cci == 5))
+# nrow(filter(df.preProcess, cci == 6, outcome==1 ))/nrow(filter(df.preProcess, cci == 6))
+# nrow(filter(df.preProcess, cci >6, outcome==1 ))/nrow(filter(df.preProcess, cci > 6))
+# 
+# nrow(filter(df.preProcess, cci > 3, outcome==1 ))/nrow(filter(df.preProcess, cci > 3))
+# nrow(filter(df.preProcess, cci <= 3, outcome==1 ))/nrow(filter(df.preProcess, cci <=3))
+
+
+
 
 

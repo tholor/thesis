@@ -33,6 +33,7 @@ convert_data_types=function(data){
                           "cardiovascular",
                           "peripheral_artery_disease",
                           "hypertension",
+                          "pure_hypertension",
                           "COPD_lung",
                           "dementia",
                           "liver_disease",
@@ -111,8 +112,8 @@ convert_data_types=function(data){
 #    data$outcome[data$dead_3_months== 0] = "Alive"
 #    data$outcome[data$dead_3_months == 1] = "Dead"
 #  }
-  data$outcome[data$outcome== 0] = "Alive"
-  data$outcome[data$outcome == 1] = "Dead"
+  #data$outcome[data$outcome== 0] = "Alive"
+  #data$outcome[data$outcome == 1] = "Dead"
   data[,"outcome"] = as.factor(data[,"outcome"])
 #  data$dead_first_year = NULL 
 #  data$dead_half_year = NULL 
@@ -131,6 +132,7 @@ convert_data_types_dyn=function(data){
                           "cardiovascular",
                           "peripheral_artery_disease",
                           "hypertension",
+                          "pure_hypertension",
                           "COPD_lung",
                           "dementia",
                           "liver_disease",
@@ -174,6 +176,7 @@ convert_data_types_dyn=function(data){
   data$liver_disease = ifelse(data$mild_liver_disease ==1 | data$severe_liver_disease==1, 1,0)
   data$access_type = ifelse(data$main_access_used == 'fistula' | data$main_access_used =='graft', 'fistula/graft_ready', data$main_access_used)
   data$access_type = ifelse(data$access_type == 'catheter', 'catheter_or_not_ready',   data$access_type)
+  data$uncontrolled_hypertension= ifelse(data$pure_hypertension==1 & data$statins==0 & data$beta_blockers==0 & data$ace_inhibitors==0,1,0)
   #data$primary_renal_disease = ifelse(is.na(data$primary_renal_disease),"other",data$primary_renal_disease)
   data$pain = ifelse(data$pain_chest==1 | data$pain_leg==1 |data$pain_elsewhere ==1, 1,0)
   data$art_ven_pressure_increased =  ifelse(data$arterial_press_increased ==1 | data$venous_press_increased==1, 1,0)
@@ -186,8 +189,8 @@ convert_data_types_dyn=function(data){
   data[,names(data) %in% c(str_comorb_features,str_compl_features,"pain","art_ven_pressure_increased")] = apply(data[,names(data) %in% c(str_comorb_features,str_compl_features,"pain","art_ven_pressure_increased")],2, replace_NAs)
   
   #drop some columns
-  data = dplyr::select(data, -c(pid,period,from_date,to_date,mild_liver_disease,severe_liver_disease,main_access_used))
-  #temp: adj_fdod removed from row above
+  data = dplyr::select(data, -c(period,from_date,to_date,mild_liver_disease,severe_liver_disease,main_access_used))
+  #temp: adj_fdod,pid removed from row above
   
   #convert to factors:
   data[, names(data) %in% c("art_ven_pressure_increased","sex","bmi","ethnic","resulting_autonomy","dead_first_year","epogen_usage","access_type","pain",str_comorb_features,"primary_renal_disease",str_compl_features)] = 
@@ -198,8 +201,8 @@ convert_data_types_dyn=function(data){
   data$bmi = relevel(data$bmi, ref = "normal/high")
   #data$primary_renal_disease = relevel(data$primary_renal_disease, ref = "other")
 
-  data$outcome[data$outcome== 0] = "Alive"
-  data$outcome[data$outcome == 1] = "Dead"
+  #data$outcome[data$outcome== 0] = "Alive"
+  #data$outcome[data$outcome == 1] = "Dead"
   data[,"outcome"] = as.factor(data[,"outcome"])
   return(data) 
 }
@@ -238,26 +241,49 @@ convert_labs_to_diff = function(data){
 #______________
 # standardize all variables 
 #________________
-data = df.preProcess
-#prepare binary variables
-for(i in 1:ncol(data)){
-  if(is.factor(data[,i]) && nlevels(data[,i]) == 2){
-    data[,i]=(as.numeric(data[,i]) - mean(as.numeric(data[,i])-1))/2    
-    # long form: data[,i]=(as.numeric(data[,i])-1)+(1 - mean(as.numeric(data[,i])-1))/2    
+standardize_var = function(data){
+  data = df.preProcess
+  #prepare binary variables
+  for(i in 1:ncol(data)){
+    if(is.factor(data[,i]) && !names(data)[i] %in% c("outcome","access_type") && nlevels(data[,i]) == 2){
+      data[,i] = as.numeric(data[,i])-1
+      data[,i]=(data[,i] + (1- mean(data[,i])))/2    
+    }
   }
+  #preparce ordinal variables
+  if ("resulting_autonomy" %in% names(data)) {
+    #convert to num
+    data$resulting_autonomy = as.numeric(data$resulting_autonomy)-1
+    lower_percentile=0
+    for(i in 0:2){
+      upper_percentile = lower_percentile+(nrow(subset(data, resulting_autonomy==i))/nrow(data))
+      data$resulting_autonomy[data$resulting_autonomy==i] = (lower_percentile + upper_percentile) / 2
+      lower_percentile = upper_percentile
+    }
+  }
+  #scale to mean zero and unit stand. dev.
+  for(i in 1:ncol(data)){
+    if(is.numeric(data[,i]) && !names(data)[i] %in% c("outcome","access_type"))data[,i]=scale(data[,i], center=TRUE, scale=TRUE)
+  }
+  return(data)
 }
-#data$hypertension_stand=(as.numeric(data$hypertension) - mean(as.numeric(data$hypertension)-1))/2
-#mean(as.numeric(df.preProcess$dementia)-1)/2
+#__________________________________
+# aggregate heart diseases  
+# aggregate CCI: three levels (0,1-3, > 3)
+#__________________________________
+aggregate_var = function(data){
+  #heart diseases
+  #data$heart_diseases = as.factor(ifelse(data$chf ==1 | data$cardiovascular ==1 | data$infarct == 1,1,0))
+#   data$chf = NULL
+#   data$cardiovascular = NULL
+#   data$infarct = NULL
+  #CCI
+  data$high_cci = as.factor(ifelse(data$cci<3,0,1))
+  data$cci = NULL
+return(data)
+}
 
-#preparce ordinal variables
-if ("resulting_autonomy" %in% names(data)) {
-  #convert to num
-  if(data$resulting_autonomy=="normal")data$resulting_autonomy=0
-  
-  #standardize
-  data$resulting_autonomy = data[,i]=(as.numeric(data[,i]) - mean(as.numeric(data[,i])-1))/nlevels(data$resulting_autonomy)     
-}
-#scale to mean zero and unit stand. dev.
+
 #__________________________________
 #Write results of classifier to xlsx 
 #__________________________________
@@ -296,22 +322,32 @@ getOtherOutcome = function(data_in){
   return(outcome)
 }
 
+#__________________________________
+#Write current cohort to DB 
+#__________________________________
+write_to_database = function(data,table_name){
+  con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
+  dbSendQuery(con, paste0("CREATE TABLE ", table_name," (pid VARCHAR(50));"))
+  dbWriteTable(conn=con, value=data, name=table_name,overwrite = TRUE)
+  #close DB-Connection
+  dbDisconnect(con)
+}
 
 #NORMALIZATION??
 
 # #Markov blanket
-  learn.mb(df.preProcess, node="outcome",method = "gs" )
-  learn.mb(df.preProcess, node="outcome",method = "iamb" )
-  learn.nbr(df.preProcess, node="outcome",method = "mmpc")
- learn.nbr(df.preProcess, node="outcome",method = "si.hiton.pc")
-
-#learn BN 
-bn.gs = gs(df.preProcess)
-plot(bn.hc, main = "Constraint-based algorithms")
-bn.hc <- hc(df.preProcess)
-bn.tabu = tabu(df.preProcess)
-mb(bn.tabu,"outcome")
-graphviz.plot(bn.tabu)
-mb(bn.hc,"outcome")
-graphviz.plot(bn.hc)
+#   learn.mb(df.preProcess, node="outcome",method = "gs" )
+#   learn.mb(df.preProcess, node="outcome",method = "iamb" )
+#   learn.nbr(df.preProcess, node="outcome",method = "mmpc")
+#  learn.nbr(df.preProcess, node="outcome",method = "si.hiton.pc")
+# 
+# #learn BN 
+# bn.gs = gs(df.preProcess)
+# plot(bn.hc, main = "Constraint-based algorithms")
+# bn.hc <- hc(df.preProcess)
+# bn.tabu = tabu(df.preProcess)
+# mb(bn.tabu,"outcome")
+# graphviz.plot(bn.tabu)
+# mb(bn.hc,"outcome")
+# graphviz.plot(bn.hc)
 
