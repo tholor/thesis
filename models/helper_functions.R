@@ -1,13 +1,14 @@
 #IMPORT DATA
-query_data_dyn = function(table,outcome_time,assessment_time){
+query_data_dyn = function(table,outcome_time,assessment_time, old_input){
   con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
-  if(assessment_time == 0){
+  #get features
+  if(assessment_time == 0 && old_input == "TRUE"){
     strQuery = paste0("SELECT * FROM ",table)
   }else{
   strQuery = paste0("SELECT * FROM ",table," WHERE period = ",assessment_time)
   }
   queried_data = dbGetQuery(con, strQuery)
-  #get correct outcome
+  #get outcome
   strQuery = paste0("SELECT pid, period_of_death, last_period_observed FROM 01_death_periods")
   queried_outcomes = dbGetQuery(con, strQuery)
   #assess if patient is dead(=>1) within the horizon (outcome_time) or alive(=>0) or censored(=> NULL)
@@ -34,9 +35,12 @@ convert_data_types=function(data){
                           "peripheral_artery_disease",
                           "hypertension",
                           "pure_hypertension",
+                          "hypotension_hemodialysis",
                           "COPD_lung",
                           "dementia",
                           "liver_disease",
+                          "mild_liver_disease",
+                          "severe_liver_disease",
                           "down_syndrome",
                           "arthropathies",
                           "hepatitis_c",
@@ -49,7 +53,9 @@ convert_data_types=function(data){
                           "lymphoma",
                           "cancer",
                           "benign_or_uncertain_tumor",
-                          "cerebrovascular")
+                          "cerebrovascular",
+                          "any_tumor",
+                          "metastatic_tumor")
   
   str_compl_features = c("access_problem",
                          "access_flow_poor",
@@ -67,15 +73,17 @@ convert_data_types=function(data){
                          "headache",
                          "fever",
                          "loss_consciousness",
-                         "weight_gain_excessive")
+                         "weight_gain_excessive",
+                         "hypotension_problem")
   
   #adjust feature definition 
   #data$age = data$age^2
-  data$ethnic = ifelse(data$ethnic=="Unknown" | data$ethnic == "American Indian/Alaskan Native" | is.na(data$ethnic), "Unknown", data$ethnic )
-  data$bmi = ifelse(data$bmi<20,"low","normal/high")
+  data$ethnic = ifelse(data$ethnic=="Unknown" | is.na(data$ethnic), "Unknown", data$ethnic )
+  data$ethnic = ifelse(data$ethnic == "American Indian/Alaskan Native" | data$ethnic == "Filipino" | data$ethnic == "Pacific Islander", "Other",data$ethnic) 
+  data$bmi = ifelse(data$bmi<20,"low",ifelse(data$bmi<25,"normal",ifelse(data$bmi<35, "high", "very high")))
   data$liver_disease = ifelse(data$mild_liver_disease ==1 | data$severe_liver_disease==1, 1,0)
   data$access_type = ifelse(data$access_at_begin == 'fistula_usable' | data$access_at_begin == 'graft_usable', 'fistula/graft_ready', 'catheter_or_not_ready')
-  data$primary_renal_disease = ifelse(is.na(data$primary_renal_disease),"other",data$primary_renal_disease)
+  data$primary_renal_disease = ifelse(is.na(data$primary_renal_disease),"unknown",data$primary_renal_disease)
   data$pain = ifelse(data$pain_chest==1 | data$pain_leg==1 |data$pain_elsewhere ==1, 1,0)
   data$art_ven_pressure_increased =  ifelse(data$arterial_press_increased ==1 | data$venous_press_increased==1, 1,0)
   data$start_year = as.numeric(substr(data$adj_fdod,1,4))
@@ -87,8 +95,8 @@ convert_data_types=function(data){
  data[,names(data) %in% c(str_comorb_features,str_compl_features)] = apply(data[,names(data) %in% c(str_comorb_features,str_compl_features)],2, replace_NAs)
  
   #drop some columns
-  data = dplyr::select(data,-c(fully_followed,mild_liver_disease,severe_liver_disease,access_at_begin))
- #temp: adj_fdod, pid removed from row above
+  data = dplyr::select(data,-c(fully_followed,access_at_begin))
+ #temp: adj_fdod, pid removed from row above mild_liver_disease,severe_liver_disease
  
   #convert to factors:
   data[, names(data) %in% c("art_ven_pressure_increased","sex","bmi","ethnic","resulting_autonomy","dead_first_year","epogen_usage","access_type","pain",str_comorb_features,"primary_renal_disease",str_compl_features)] = 
@@ -133,6 +141,10 @@ convert_data_types_dyn=function(data){
                           "peripheral_artery_disease",
                           "hypertension",
                           "pure_hypertension",
+                          "hypotension",
+                          "hypotension_hemodialysis",
+                          "heart_diseases",
+                          "pure_hypertension",
                           "COPD_lung",
                           "dementia",
                           "liver_disease",
@@ -147,13 +159,19 @@ convert_data_types_dyn=function(data){
                           "leukemia",
                           "lymphoma",
                           "cancer",
+                          "any_tumor",
+                          "metastatic_tumor",
                           "benign_or_uncertain_tumor",
-                          "cerebrovascular")
+                          "cerebrovascular",
+                          "anemia",
+                          "pneumonia")
   
   str_compl_features = c("access_problem",
                          "access_flow_poor",
                          "all_cramps",
                          "bp_problem",
+                         "bp_high_problem",
+                         "bp_low_problem",
                          "arterial_press_decreased",
                          "arterial_press_increased",
                          "multiple_needle_sticks",
@@ -166,44 +184,62 @@ convert_data_types_dyn=function(data){
                          "headache",
                          "fever",
                          "loss_consciousness",
-                         "weight_gain_excessive")
+                         "weight_gain_excessive",
+                         "shortness_breath",
+                         "hypotension_problem")
+  
+  str_med_features = c("statins","beta_blockers",
+                       "ace_inhibitors","anemia","anticoagulants","bone_health","binders","antibiotics",
+                       "asas","iron","vitamins","calcium_blockers","acid_pump","constipation","central_antihypertensive")
   
   #adjust feature definition 
   #data$age = data$age^2
   data$resulting_autonomy=ifelse(data$resulting_autonomy=="some_assistance","normal",data$resulting_autonomy) #only temporary solution
-  data$ethnic = ifelse(data$ethnic=="Unknown" | data$ethnic == "American Indian/Alaskan Native" | is.na(data$ethnic), "Unknown", data$ethnic )
-  data$bmi = ifelse(data$bmi<20,"low","normal/high")
+  data$ethnic = ifelse(data$ethnic=="Unknown" | is.na(data$ethnic)|data$ethnic == "American Indian/Alaskan Native" | data$ethnic == "Filipino" | data$ethnic == "Pacific Islander", "Unknown", data$ethnic )
+  #data$ethnic = ifelse(data$ethnic == "American Indian/Alaskan Native" | data$ethnic == "Filipino" | data$ethnic == "Pacific Islander", "Other",data$ethnic) 
+  data$bmi = ifelse(data$bmi<20,"low",ifelse(data$bmi<25,"normal",ifelse(data$bmi<35, "high", "very high")))
+  #data$bmi = ifelse(data$bmi>20,"high/normal","low")
   data$liver_disease = ifelse(data$mild_liver_disease ==1 | data$severe_liver_disease==1, 1,0)
+  #data$access_type = data$main_access_used
   data$access_type = ifelse(data$main_access_used == 'fistula' | data$main_access_used =='graft', 'fistula/graft_ready', data$main_access_used)
   data$access_type = ifelse(data$access_type == 'catheter', 'catheter_or_not_ready',   data$access_type)
   data$uncontrolled_hypertension= ifelse(data$pure_hypertension==1 & data$statins==0 & data$beta_blockers==0 & data$ace_inhibitors==0,1,0)
-  #data$primary_renal_disease = ifelse(is.na(data$primary_renal_disease),"other",data$primary_renal_disease)
+  data$primary_renal_disease = ifelse(is.na(data$primary_renal_disease),"unknown",data$primary_renal_disease)
   data$pain = ifelse(data$pain_chest==1 | data$pain_leg==1 |data$pain_elsewhere ==1, 1,0)
   data$art_ven_pressure_increased =  ifelse(data$arterial_press_increased ==1 | data$venous_press_increased==1, 1,0)
+  data$high_pre_sbp_sitting = ifelse(data$pre_bp_systolic_sitting > 180, 1,0)
+  data$low_pre_sbp_sitting = ifelse(data$pre_bp_systolic_sitting < 110, 1,0)
+ # data$num_time_decreased_by_pat = ifelse(data$num_time_decreased_by_pat>0,1,0)
+  #data$low_pre_pp_sitting = ifelse(data$pre_pp_sitting < 55, 1,0)
+  data$low_bp_and_chf = ifelse(data$low_pre_sbp_sitting==1 & data$chf==1,1,0)
   #data$start_year = as.numeric(substr(data$adj_fdod,1,4))
-  #edit null values for comorbidities (null -> 0)
+  #edit null values for comorbidities etc. (null -> 0)
   replace_NAs = function(data){
     data[is.na(data)]=0
     return(data)
   }
-  data[,names(data) %in% c(str_comorb_features,str_compl_features,"pain","art_ven_pressure_increased")] = apply(data[,names(data) %in% c(str_comorb_features,str_compl_features,"pain","art_ven_pressure_increased")],2, replace_NAs)
+  data[,names(data) %in% c(str_comorb_features,str_compl_features,str_med_features,"num_time_decreased_by_pat","num_hospitalizations","days_hospitalized","pain","art_ven_pressure_increased","num_no_shows","avg_epo_dose_per_kg")] = apply(data[,names(data) %in% c(str_comorb_features,str_compl_features,str_med_features,"num_hospitalizations","days_hospitalized","num_time_decreased_by_pat","pain","art_ven_pressure_increased","num_no_shows","avg_epo_dose_per_kg")],2, replace_NAs)
   
+  data$avg_epo_dose_per_kg = as.factor(ifelse(data$avg_epo_dose_per_kg == 0, "none",ifelse(data$avg_epo_dose_per_kg < 150,"in_range","higher")))
   #drop some columns
   data = dplyr::select(data, -c(period,from_date,to_date,mild_liver_disease,severe_liver_disease,main_access_used))
   #temp: adj_fdod,pid removed from row above
   
   #convert to factors:
-  data[, names(data) %in% c("art_ven_pressure_increased","sex","bmi","ethnic","resulting_autonomy","dead_first_year","epogen_usage","access_type","pain",str_comorb_features,"primary_renal_disease",str_compl_features)] = 
-    lapply(data[,names(data) %in% c("art_ven_pressure_increased","sex","bmi","ethnic","resulting_autonomy","dead_first_year","epogen_usage","access_type","pain",str_comorb_features,"primary_renal_disease",str_compl_features)], as.factor )
+  data[, names(data) %in% c("with_TMA","high_pre_sbp_sitting","low_pre_sbp_sitting","pre_edema","avg_epo_dose_per_kg","art_ven_pressure_increased","sex","bmi","ethnic","resulting_autonomy","dead_first_year","epogen_usage","access_type","pain",str_comorb_features,str_med_features,"primary_renal_disease",str_compl_features)] = 
+    lapply(data[,names(data) %in% c("with_TMA","high_pre_sbp_sitting","low_pre_sbp_sitting","pre_edema","avg_epo_dose_per_kg","art_ven_pressure_increased","sex","bmi","ethnic","resulting_autonomy","dead_first_year","epogen_usage","access_type","pain",str_comorb_features,str_med_features,"primary_renal_disease",str_compl_features)], as.factor )
   
   #set standard level of factors
   data$resulting_autonomy = relevel(data$resulting_autonomy, ref = "normal")
-  data$bmi = relevel(data$bmi, ref = "normal/high")
+  data$bmi = relevel(data$bmi, ref = "high/normal")
+  data$avg_epo_dose_per_kg = relevel(data$avg_epo_dose_per_kg, ref = "none")
   #data$primary_renal_disease = relevel(data$primary_renal_disease, ref = "other")
 
-  #data$outcome[data$outcome== 0] = "Alive"
-  #data$outcome[data$outcome == 1] = "Dead"
-  data[,"outcome"] = as.factor(data[,"outcome"])
+
+  if("outcome" %in% colnames(data)){
+    data$outcome[data$outcome== 0] = "Alive"
+    data$outcome[data$outcome == 1] = "Dead"
+  data[,"outcome"] = as.factor(data[,"outcome"])}
   return(data) 
 }
 
@@ -214,27 +250,28 @@ convert_data_types_dyn=function(data){
 #_______________________
 discretize_labs = function(data){
   #data$albumin = as.factor(ifelse(data$albumin>4,"in_range",ifelse(data$albumin> 3.5, "low","very_low")))
-  data$hgb = as.factor(ifelse((data$hgb >11| data$hgb  <10)&data$epogen_usage==1 | (data$hgb <12 &data$epogen_usage==0), "out_of_range","in_range")) # TO DO: check if 13 is correct
-  data$calcium = as.factor(ifelse(data$calcium <8.4, "low",ifelse(data$calcium >9.5,"high","in_range")))
+  #data$hgb = as.factor(ifelse((data$hgb >11| data$hgb  <10)&data$epogen_usage==1 | (data$hgb <11 &data$epogen_usage==0), "out_of_range","in_range"))
+  data$hgb = as.factor(ifelse(data$hgb < 10, "lower","in_range"))
+  data$calcium = as.factor(ifelse(data$calcium <8.4, "lower",ifelse(data$calcium >9.5,"higher","in_range")))
      #mutate(potassium = ifelse(albumin<3.7, "low","in_range")
-  data$phosphorus = as.factor(ifelse(data$phosphorus<3.5, "low",ifelse(data$phosphorus>5.5,"high","in_range")))
-  data$calcXphosph = as.factor(ifelse(data$calcXphosph>55, "high","in_range"))
-  data$ferritin = as.factor(ifelse( data$ferritin<200 &data$epogen_usage==1, "low","in_range"))
+  #data$phosphorus = as.factor(ifelse(data$phosphorus<3.5, "low",ifelse(data$phosphorus>5.5,"high","in_range")))
+  data$calcXphosph = as.factor(ifelse(data$calcXphosph>55, "higher","in_range"))
+  #data$ferritin = as.factor(ifelse( data$ferritin<200 &data$epogen_usage==1, "low","in_range"))
     #mutate(creatinine = ifelse(albumin<3.7, "low","in_range")
-  data$pth = as.factor(ifelse(data$pth<200, "low",ifelse(data$pth>300,"high","in_range")))
+  #data$pth = as.factor(ifelse(data$pth<200, "low",ifelse(data$pth>300,"high","in_range")))
   return(data)
 }
 convert_labs_to_diff = function(data){
   #data$albumin = as.factor(ifelse(data$albumin>4,"in_range",ifelse(data$albumin> 3.5, "low","very_low")))
   #data$hgb = as.factor(ifelse((data$hgb >11| data$hgb  <10)&data$epogen_usage==1 | (data$hgb <12 &data$epogen_usage==0), "out_of_range","in_range")) # TO DO: check if 13 is correct
   data$calcium = abs(data$calcium-9.2)
-  
+  data$co2 = abs(data$co2-25.5) #recommended range of 22-29
   #mutate(potassium = ifelse(albumin<3.7, "low","in_range")
-  data$phosphorus = abs(data$phosphorus-4.5)
-  #data$calcXphosph = as.factor(ifelse(data$calcXphosph>55, "high","in_range"))
+  #data$phosphorus = abs(data$phosphorus-4.5)
+#  data$calcXphosph = ifelse(data$calcXphosph-55>0,data$calcXphosph-55,0)
   #data$ferritin = as.factor(ifelse( data$ferritin<200 &data$epogen_usage==1, "low","in_range"))
   #mutate(creatinine = ifelse(albumin<3.7, "low","in_range")
-  data$pth = abs(data$pth-250)
+  #data$pth = abs(data$pth-250)
   return(data)
 }
 
@@ -245,7 +282,7 @@ standardize_var = function(data){
   data = df.preProcess
   #prepare binary variables
   for(i in 1:ncol(data)){
-    if(is.factor(data[,i]) && !names(data)[i] %in% c("outcome","access_type") && nlevels(data[,i]) == 2){
+    if(is.factor(data[,i]) && !names(data)[i] %in% c("outcome","access_type","bmi","avg_epo_dose_per_kg") && nlevels(data[,i]) == 2){
       data[,i] = as.numeric(data[,i])-1
       data[,i]=(data[,i] + (1- mean(data[,i])))/2    
     }
@@ -263,7 +300,7 @@ standardize_var = function(data){
   }
   #scale to mean zero and unit stand. dev.
   for(i in 1:ncol(data)){
-    if(is.numeric(data[,i]) && !names(data)[i] %in% c("outcome","access_type"))data[,i]=scale(data[,i], center=TRUE, scale=TRUE)
+    if(is.numeric(data[,i]) && !names(data)[i] %in% c("outcome","access_type","bmi","avg_epo_dose_per_kg"))data[,i]=scale(data[,i], center=TRUE, scale=TRUE)
   }
   return(data)
 }
@@ -271,15 +308,26 @@ standardize_var = function(data){
 # aggregate heart diseases  
 # aggregate CCI: three levels (0,1-3, > 3)
 #__________________________________
-aggregate_var = function(data){
+aggregate_var = function(data, var_to_aggregate){
   #heart diseases
-  #data$heart_diseases = as.factor(ifelse(data$chf ==1 | data$cardiovascular ==1 | data$infarct == 1,1,0))
-#   data$chf = NULL
-#   data$cardiovascular = NULL
-#   data$infarct = NULL
+  if("heart_diseases" %in% var_to_aggregate){
+  data$heart_diseases = as.factor(ifelse(data$chf ==1 | data$cardiovascular ==1 | data$infarct == 1,1,0))
+   data$chf = NULL
+   data$cardiovascular = NULL
+   data$infarct = NULL
+  }
+  if ("cci" %in% var_to_aggregate){
   #CCI
+  #data$log_cci = ifelse(data$cci==0,0,log(data$cci))
   data$high_cci = as.factor(ifelse(data$cci<3,0,1))
-  data$cci = NULL
+  }
+  if ("anti_hypertensive_med" %in% var_to_aggregate){
+  #antihypertensive medication
+  data$anti_hypertensive_med = as.factor(ifelse(data$ace_inhibitors==1 | data$calcium_blockers==1| data$central_antihypertensive==1,1,0 )) #
+  data$ace_inhibitors = NULL
+  data$calcium_blockers= NULL
+  data$central_antihypertensive= NULL
+  }
 return(data)
 }
 
@@ -332,6 +380,97 @@ write_to_database = function(data,table_name){
   #close DB-Connection
   dbDisconnect(con)
 }
+query_data_cox = function(last_period){
+  con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
+  #   if(assessment_time == 0){
+  #     strQuery = paste0("SELECT * FROM ",table)
+  #   }else{
+  strQuery = paste0("SELECT model.*,
+                    IF((model.period+1) = death.period_of_death, 1,0)as event
+                    FROM 03_model_exact model INNER JOIN 01_death_periods death ON model.pid = death.pid 
+                    WHERE model.period <= ", last_period," AND model.period > 0
+                    AND (death.last_period_observed != model.period)")
+  #}
+  queried_data = dbGetQuery(con, strQuery)
+  queried_data$start = queried_data$period
+  queried_data$stop = queried_data$period+1
+  #get correct outcome
+  
+  #close DB-Connection
+  dbDisconnect(con)
+  return(queried_data)
+}
+
+query_data_cox_fixed = function(assessment_time){
+  con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
+  #   if(assessment_time == 0){
+  #     strQuery = paste0("SELECT * FROM ",table)
+  #   }else{
+  strQuery = paste0("SELECT model.*,
+                    IF(model.period = death.period_of_death, 1,0) as event,
+                    FROM 03_model_exact model INNER JOIN 01_death_periods death ON model.pid = death.pid WHERE model.period = ",assessment_time)
+  #}
+  queried_data = dbGetQuery(con, strQuery)
+  queried_data$start = queried_data$period
+  queried_data$stop = queried_data$period+1
+  #get correct outcome
+  
+  #close DB-Connection
+  dbDisconnect(con)
+  return(queried_data)
+}
+
+# impute values in death period if missing (death might be very close to begin of period => no labs etc.)
+carry_forward =function(data){
+  #data = filter(df.preProcess, pid == "LIB0000014810" | pid =="LIB0000016449")
+  #data = df.preProcess
+  for(cur_row in which(data[,"event"]==1)){
+  if(data[cur_row,"event"]==1 & !complete.cases(data[cur_row,])){
+      #show(cur_row)
+      #impute missing values, if period before death exists
+      if(data[cur_row,"pid"]==data[cur_row-1,"pid"]){
+        data[cur_row,is.na(data[cur_row,])] = data[cur_row-1,is.na(data[cur_row,])] 
+      }
+    }
+  }
+return(data)
+}
+
+
+describe_cohort = function(data, exclude_columns){
+  data= data[, !names(data) %in% exclude_columns]
+  #data = df.preProcess
+  #missing data
+  results = data.frame("feature"=names(data), "factor" = sapply(data, is.factor), "numeric" = sapply(data,is.numeric), "abs_missing" = sapply(data, function(y) sum(length(which(is.na(y))))))
+  results$perc_missing = round(results$abs_missing/nrow(data),3)
+  #mean etc for numeric
+  cols_numeric = sapply(data, is.numeric)
+  results[cols_numeric,"mean"] = sapply(data, mean, na.rm=TRUE)[cols_numeric]
+  results[cols_numeric,"sd"] = apply(data,2, sd, na.rm=TRUE)[cols_numeric]
+  results[cols_numeric,"max"] = apply(data,2, max, na.rm=TRUE)[cols_numeric]
+  results[cols_numeric,"min"] = apply(data,2, min, na.rm=TRUE)[cols_numeric]
+  # counting 1 for factors with 2 levels
+  cols_factors_single = sapply(data, is.factor) & (sapply(data, nlevels)==2)
+  results[cols_factors_single, "num_equals_lvl2"] = sapply(data, function(y) sum(length(which(y==levels(y)[2]))))[cols_factors_single]
+  results[cols_factors_single, "perc_equals_lvl2"] = round(results$num_equals_lvl2/nrow(data),3)[cols_factors_single]
+  #counting for factors with multiple levels
+  cols_factors_multiple = sapply(data, is.factor) & (sapply(data, nlevels)>2)
+  results[cols_factors_multiple, "obs_per_level"] = sapply(data, get_levels)[cols_factors_multiple]
+  return(results)
+}
+
+
+#returns the number of observations per level of factor variable as one string
+get_levels = function(column){
+  if(is.factor(column)){
+    df = as.data.frame(table(column))
+    vect = toString(c(t((df))))}
+  else{
+    vect = ""
+  }
+  return(vect)
+}
+
 
 #NORMALIZATION??
 
@@ -351,3 +490,25 @@ write_to_database = function(data,table_name){
 # mb(bn.hc,"outcome")
 # graphviz.plot(bn.hc)
 
+####
+
+#plot(train_data$outcome,as.factor(train_data$cci), type ="h")
+#plot(train_data$outcome, train_data$cci, type="h")
+#qplot(pre_bp_systolic_sitting, data = train_data, geom = "histogram", binwidth = 1, colour = outcome )
+
+# 
+# cor(as.numeric(df.preProcess$diabetes_no_compl), as.numeric(df.preProcess$outcome))
+# cor(as.numeric(df.preProcess$diabetes_with_compl), as.numeric(df.preProcess$primary_renal_disease))
+# 
+#nrow(filter(df.preProcess, cci ==0 , outcome==1 ))/nrow(filter(df.preProcess, cci ==0))
+# nrow(filter(df.preProcess, cci == 1, outcome==1 ))/nrow(filter(df.preProcess, cci == 1))
+# nrow(filter(df.preProcess, cci == 2 , outcome==1 ))/nrow(filter(df.preProcess, cci == 2))
+# nrow(filter(df.preProcess, cci == 3, outcome==1 ))/nrow(filter(df.preProcess, cci == 3))
+# nrow(filter(df.preProcess, cci == 4, outcome==1 ))/nrow(filter(df.preProcess, cci == 4))
+# nrow(filter(df.preProcess, cci == 5, outcome==1 ))/nrow(filter(df.preProcess, cci == 5))
+# nrow(filter(df.preProcess, cci == 6, outcome==1 ))/nrow(filter(df.preProcess, cci == 6))
+# nrow(filter(df.preProcess, cci >6, outcome==1 ))/nrow(filter(df.preProcess, cci > 6))
+# 
+#nrow(filter(df.preProcess, chf ==1, outcome==1 ))/nrow(filter(df.preProcess, chf==1))
+#  nrow(filter(df.preProcess, cci > 2, outcome==1 ))/nrow(filter(df.preProcess, cci >2))
+# nrow(filter(df.preProcess, cci <= 2, outcome==1 ))/nrow(filter(df.preProcess, cci <=2))

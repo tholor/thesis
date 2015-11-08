@@ -142,7 +142,7 @@ get_top_x = function(column, x){
   df = as.data.frame(table(column))
   if(dim(df)[1] != 0){
     df = df[order(-df$Freq),]
-    df = df[1:5,]
+    df = df[1:x,]
     vect = c(t((df)))
   }else{
     vect = c(rep("No Data",10))
