@@ -16,37 +16,29 @@ for(assessment_time in t_assess){
   featureSelection = "elastic" #one of rfe, back, elastic, info_gain,manual
   discretizeLabs = FALSE #True/False
   convert_labs_diff = TRUE
-  method= "log" #rf, nb, log
+  method= "log" #rf, nb, log, log_elastic
   
-  included_columns = c("age", "sex") #demographics
-  included_columns = c(included_columns, "high_cci","hypertension","hypotension", "anemia", "pneumonia","diabetes_with_compl") # diagnoses
-  included_columns = c(included_columns, "ktv","tsat","hgb","albumin","calcium","phosphorus","calcXphosph","potassium","creatinine") #labs
-  included_columns = c(included_columns, "anticoagulants","statins","epogen_usage", "beta_blockers","anti_hypertensive_med") #meds 
-  included_columns = c(included_columns, "hypotension_problem","bp_falling","all_cramps","access_problem","access_flow_poor","shortness_breath","pain","infiltration_needle") #complications
-  included_columns = c(included_columns, "actual_duration","num_time_decreased_by_pat", "weight_gain","pre_edema","low_pre_sbp_sitting","high_pre_sbp_sitting") #dialysis sessions
-  included_columns = c(included_columns, "resulting_autonomy","num_hospitalizations","access_type","bmi","num_no_shows","with_TMA") #other
-   #   exclude_columns = c("art_ven_pressure_increased","avg_epo_dose_per_kg","eGFR","arterial_press_decreased","days_hospitalized","planned_duration","fluid_removed","rel_fluid_removed","rel_weight_loss_desired","headache","primary_renal_disease","num_no_shows","cci_hemmelgarn","nausea_vomiting","c_reactive_prot","vitamins","multiple_needle_sticks","bp_problem","start_year","pth","ktv","with_TMA_six","ethnic","ferritin","dead_first_year","calcXphosph","adj_fdod","arterial_press_increased","venous_press_increased","connective_tissue","pain_chest","pain_elsewhere","pain_leg","hco3_bicarb","cholesterol","fully_followed")
-#   exclude_columns = c(exclude_columns,"fever","loss_consciousness","weight_gain_excessive")
-#   #exclude CCI diseases
-#   exclude_columns = c(exclude_columns,"chf","any_tumor","metastatic_tumor","benign_or_uncertain_tumor","arthropathies","ulcer","COPD_lung","peripheral_artery_disease","cancer","dementia","cerebrovascular","copd_lung","liver_disease","infarct","hiv")
-#   #exclude other comorbs:
-#   exclude_columns = c(exclude_columns,"hepatitis_c","cardiovascular","hypotension_hemodialysis","hypertension","uncontrolled_hypertension","heart_diseases","diabetes_no_compl","hypertension","hemiplegia","lymphoma","leukemia","down_syndrome")
-#   #,"pure_hypertension","diabetes_with_compl","hypotension"
-  #exclude blood pressures
-  #exclude_columns = c(exclude_columns,"pre_bp_diastolic_sitting","pre_bp_systolic_sitting","low_bp_and_chf","pre_pp_sitting")
+  included_columns = c("age", "sex") #2x demographics
+  included_columns = c(included_columns, "high_cci","hypertension","hypotension", "anemia", "pneumonia","diabetes_with_compl") # 6x diagnoses
+  included_columns = c(included_columns, "ktv","tsat","hgb","albumin","calcium","phosphorus","calcXphosph","potassium","creatinine") #9xlabs
+  included_columns = c(included_columns, "anticoagulants","statins","epogen_usage", "beta_blockers","anti_hypertensive_med") #5x meds 
+  included_columns = c(included_columns, "hypotension_problem","all_cramps","access_problem","access_flow_poor","shortness_breath","pain","infiltration_needle") #7x complications
+  included_columns = c(included_columns, "actual_duration","num_time_decreased_by_pat", "weight_gain","pre_edema","low_pre_sbp_sitting","high_pre_sbp_sitting") #6x dialysis sessions
+  included_columns = c(included_columns, "resulting_autonomy","num_hospitalizations","access_type","bmi","num_no_shows","with_TMA") #6x other
   comment = " "
-  assessment_time = 4 #number of month
+  #included_columns = included_columns[!included_columns %in% c("hypotension_problem","tsat","ktv","anticoagulants")]
+  #assessment_time = 4 #number of month
   outcome_time = assessment_time+12#number of month
-  confusion_table = TRUE
+  confusion_table = FALSE
   save_model= FALSE
-  standardize=TRUE
+  standardize=FALSE #manual standardization
   aggregate = TRUE
-  var_to_aggregate = c("anti_hypertensive_med","cci")
+  var_to_aggregate = c("anti_hypertensive_med","cci") #which variables should be aggregated
   write_to_db = FALSE
   topX = 10 # just applies to information_gain: use the Top X features
   old_input=FALSE
   write_coeffs = TRUE
-  FileExcelCoeffs = "output\\model_coeffs_monthly_15_stand_hypo.xlsx"
+  FileExcelCoeffs = "output\\model_coeffs_monthly_22_old_bmi_OLS_backward.xlsx"
   #______________________________________
   # IMPORT DATA #
   #______________________________________
@@ -56,8 +48,6 @@ for(assessment_time in t_assess){
   #_____________________________________
   # PREPROCESS
   # ____________________________________
-  # if(assessment_time==0){ df.preProcess=convert_data_types(df.import) 
-  # }else{df.preProcess = convert_data_types_dyn(df.import) }
   if(assessment_time==0 && old_input){ df.preProcess=convert_data_types(df.import) 
   }else{df.preProcess = convert_data_types_dyn(df.import) }
   if(discretizeLabs){df.preProcess = discretize_labs(df.preProcess)}
@@ -107,7 +97,7 @@ for(assessment_time in t_assess){
     ctrl= rfeControl(functions= nbFuncs2, method = "repeatedcv", repeats=5, number=5, allowParallel=TRUE)
   }
   
-  if(!method %in% c("log")){
+  if(!method %in% c("log","log_elastic")){
     featProfile =rfe(dplyr::select(df.preProcess,-outcome), df.preProcess$outcome ,sizes = subsets, rfeControl = ctrl, metric = "ROC")
     featProfile
     predictors(featProfile)
@@ -119,7 +109,6 @@ for(assessment_time in t_assess){
   #________________________________
   # TRAIN MODEL 
   #________________________________
-  
   #with caret (incl. internal validation with 10x 5-fold-cross-validation)
   tc = trainControl("repeatedcv",number=5,repeats=10, classProbs = TRUE, summaryFunction = twoClassSummary)
   
@@ -135,21 +124,12 @@ for(assessment_time in t_assess){
     train_data = df.preProcess
     #logit_mauri.out = train(outcome ~ age_10*cancer+sex+COPD_lung+liver_disease+access_type*cardiovascular+primary_renal_disease+access_type*bmi+resulting_autonomy, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
     #logit_mauri_impr.out = train(outcome ~ pain+creatinine+hypertension+potassium+albumin+ethnic+age_10*cancer+sex+COPD_lung+liver_disease+access_type*cardiovascular+primary_renal_disease+access_type*bmi+resulting_autonomy, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
-    
-    #logit_all.out = train(outcome ~ ., data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
     #take all variables and do backward feature selection
     logit_glm = glm(outcome ~ ., data=train_data, family=binomial(logit))
     back = step(logit_glm)  
     logit_back_auto = train(back$formula, data= train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
     #logit_back(pretty good) = train(outcome ~ ethnic + cardiovascular + hypertension + primary_renal_disease + albumin + calcium + potassium + creatinine + pain_leg + pain_elsewhere + resulting_autonomy + age_10 + liver_disease + access_type, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
-    #logit_back_1_yr = train(outcome ~ ethnic + cardiovascular + hypertension + dementia + 
-    #                      ulcer + primary_renal_disease + albumin + potassium + creatinine + 
-    #                      epogen_usage + access_flow_poor + resulting_autonomy + age_10 + 
-    #                      liver_disease + pain, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
     
-    # logit= train(outcome ~ ethnic+cardiovascular+hypertension+primary_renal_disease+albumin+calcium+calcXphosph+phosphorus+potassium+
-    #                            creatinine+epogen_usage+bp_problem+pain+resulting_autonomy+
-    #                            age_10+liver_disease, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
     curClassifier = logit_back_auto
     parameters = "none"
     AUC = curClassifier$results$ROC
@@ -168,13 +148,13 @@ for(assessment_time in t_assess){
                                 gsub("sexM","sex",
                                      gsub("resulting_autonomynormal|resulting_autonomylimited|resulting_autonomyspecial_care","resulting_autonomy",
                                      gsub("phosphoruslow","phosphorus",
-                                     gsub("bmilow|bmihigh", "bmi",
+                                     gsub("bmilow|bmihigh|bmivery high", "bmi",
                                 gsub("1|limited|special care|Unknown|lower|higher|in_range|out_of_range","",elastic_features$coef.name))))))) %>%
       unique() %>%
       paste(collapse="+")
     elastic_formula = as.formula(paste0("outcome ~ ", elastic_formula))                          
     #elastic_formula = as.formula(paste0("outcome ~ ",paste(unique(gsub("1|limited|special care|Unknown|\\(Intercept\\)","",elastic_features$coef.name)),collapse="+")))
-    logit_lasso_form = train(elastic_formula, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
+    logit_elastic = train(elastic_formula, data=train_data, method="glm",trControl=tc,family=binomial(logit), metric = "ROC")
 #     #diagnostics
 #     vif(logit_lasso_form$finalModel)
 #     outlierTest(logit_lasso_form$finalModel)
@@ -184,11 +164,22 @@ for(assessment_time in t_assess){
 #     hoslem.test(logit_lasso_form$finalModel$y, fitted(logit_lasso_form$finalModel), g=5)
     #gbm_grid = expand.grid(lambda=seq(0.005,0.15, by=0.0145), alpha=c(0,0.5,1))
     #log_lasso = train(outcome ~ . , data = train_data, method="glmnet", family="binomial", trControl=tc, metric = "ROC")
-    curClassifier = logit_lasso_form
+    curClassifier = logit_elastic
     parameters = "alpha = 0.5"
     AUC = curClassifier$results$ROC
   }
+  if(method == "log_elastic"){
+  train_data = df.preProcess
+  set.seed(23)
+  features_input = model.matrix(~.,train_data[,!names(train_data) %in% "outcome"])
+  curClassifier = cv.glmnet(features_input,train_data$outcome, alpha=0.5, family="binomial", type.measure="auc", nfolds=5)
+  plot(curClassifier)
+  coeff_out = coef(curClassifier, s = "lambda.min")
   
+  #TO DO: 10 times 5 fold CV
+  AUC <- curClassifier$cvm[curClassifier$lambda == curClassifier$lambda.min]
+  parameters = "alpha = 0.5"
+} 
   if(method == "log" & featureSelection=="info_gain"){
     #get features
     train_data = df.preProcess
@@ -216,7 +207,6 @@ for(assessment_time in t_assess){
     parameters= paste0("mtry",curClassifier$bestTune)
     AUC =  curClassifier$results[curClassifier$results$mtry==curClassifier$bestTune[1,1],2]
   }
-  
   if(method =="svm"){
     svm.out = train(outcome ~ ., data=train_data, method="svmLinear",trControl=tc, metric = "ROC")
     curClassifier = svm.out
@@ -242,14 +232,19 @@ for(assessment_time in t_assess){
   }#end else "use existing model"
   
   if(confusion_table | use_existing_model!=""){
-    train_data$prob_dead = predict(curClassifier,train_data,type="prob")$Dead
-    myroc = pROC::roc(train_data$outcome, train_data$prob_dead,auc=TRUE)
+    if(method=="log_elastic"){
+      features_input = model.matrix(~.,df.preProcess[,!names(df.preProcess) %in% "outcome"])
+      train_data$prob_dead = predict(curClassifier, features_input, s="lambda.min", type="response")
+    }else{
+      train_data$prob_dead = predict(curClassifier,train_data,type="prob")$Dead
+    }
+    myroc = pROC::roc(response=train_data$outcome, predictor=as.vector(train_data$prob_dead), auc=TRUE)
     plot(myroc, print.thres = "best")
     currentScore = as.numeric(pROC::auc(myroc))
     threshold = coords(myroc,x="best", best.method = "closest.topleft")[[1]] #get optimal cutoff threshold
     train_data$prediction = factor(ifelse(train_data$prob_dead > threshold, "Dead", "Alive") )
     ##Confusion Matrix 
-    show(confusionMatrix(train_data$prediction,train_data$outcome, positive = "Alive"))
+    show(confusionMatrix(train_data$prediction,train_data$outcome, positive = "Dead"))
     if(use_existing_model!=""){
      AUC = currentScore
      parameters = ""
@@ -259,8 +254,8 @@ for(assessment_time in t_assess){
   summary(curClassifier)
   #plot(curClassifier)
   #write summary
-  write_results(curClassifier,AUC,discretizeLabs,df.preProcess,parameters,featureSelection,comment,outcome_time,assessment_time)
-  oldSummary = read.table(paste0(path,"\\output\\summary.csv"), sep=";", header = TRUE)
+  #write_results(curClassifier,AUC,discretizeLabs,df.preProcess,parameters,featureSelection,comment,outcome_time,assessment_time)
+  #oldSummary = read.table(paste0(path,"\\output\\summary.csv"), sep=";", header = TRUE)
   #save model
   if(save_model){
     model_path=paste0(path,"\\models\\saved\\")
@@ -275,26 +270,33 @@ for(assessment_time in t_assess){
   describeCohort = describe_cohort(train_data,"")
   
   if(write_coeffs){
-  table = as.data.frame(summary(curClassifier)$coefficients)
+    if(assessment_time==0){
+      #file.copy("output\\template_elastic.xlsx", FileExcelCoeffs)
+      file.copy("output\\template.xlsx", FileExcelCoeffs)
+      write.xlsx(names(train_data), file=FileExcelCoeffs, sheetName="features", append=TRUE)
+      all_features = c("")
+    }
+    if(method == "log_elastic"){
+      table = as.data.frame(data.frame(coef.name = dimnames(coeff_out)[[1]], coef.value = matrix(coeff_out)),row.names=NULL)
+      all_features = unique(c(all_features,row.names(as.data.frame(rownames(coeff_out)))))
+    }else{
+      table = as.data.frame(summary(curClassifier)$coefficients)
+      rownames(table) = gsub("1","",rownames(table)) #exclude "1" after name of binary covariates
+      all_features = unique(c(all_features,row.names(as.data.frame(summary(curClassifier)$coefficients))))
+    }
   table$AUC = AUC
   table$obs = nrow(train_data)
   table$deaths = nrow(train_data[train_data$outcome=="Dead",])
-  
-  if(assessment_time==0){
-    file.copy("output\\template.xlsx", FileExcelCoeffs)
-    write.xlsx(names(train_data), file=FileExcelCoeffs, sheetName="features", append=TRUE)
-    all_features = c("")
-  }
+  table$num_features = nrow(table)
+
   #all_features=unique(c(all_features,lapply(elastic_features$coef.name,as.character)))
-  all_features = unique(c(all_features,row.names(as.data.frame(summary(curClassifier)$coefficients)) ))
   if(assessment_time ==max(t_assess)){
     write.xlsx(all_features, file=FileExcelCoeffs, sheetName="features_incl_levels", append=TRUE)
   }
   show(paste("sheetname: t ",assessment_time," to ",outcome_time))
   write.xlsx(table, file=FileExcelCoeffs, sheetName=paste("t ",assessment_time," to ",outcome_time), append=TRUE)
   #write.xlsx(desc, file=FileExcelCoeffs, sheetName=paste("desc_cohort_",assessment_time), append=TRUE)
-  write.xlsx(describeCohort, file=FileExcelCoeffs, sheetName=paste("desc_cohort_",assessment_time), append=TRUE)
-  
+  write.xlsx(describeCohort, file=FileExcelCoeffs, sheetName=paste("desc_cohort_",assessment_time), append=TRUE) 
   }
 
   show(summary(curClassifier))

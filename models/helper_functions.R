@@ -26,112 +26,6 @@ query_data_dyn = function(table,outcome_time,assessment_time, old_input){
 #_________________________________
 # CONVERT DATA TYPES
 # ________________________________
-convert_data_types=function(data){
-  data = df.import
-  str_comorb_features = c("diabetes_no_compl", 
-                          "diabetes_with_compl", 
-                          "chf", 
-                          "cardiovascular",
-                          "peripheral_artery_disease",
-                          "hypertension",
-                          "pure_hypertension",
-                          "hypotension_hemodialysis",
-                          "COPD_lung",
-                          "dementia",
-                          "liver_disease",
-                          "mild_liver_disease",
-                          "severe_liver_disease",
-                          "down_syndrome",
-                          "arthropathies",
-                          "hepatitis_c",
-                          "connective_tissue",
-                          "hiv",
-                          "infarct",
-                          "ulcer",
-                          "hemiplegia",
-                          "leukemia",
-                          "lymphoma",
-                          "cancer",
-                          "benign_or_uncertain_tumor",
-                          "cerebrovascular",
-                          "any_tumor",
-                          "metastatic_tumor")
-  
-  str_compl_features = c("access_problem",
-                         "access_flow_poor",
-                         "all_cramps",
-                         "bp_problem",
-                         "arterial_press_decreased",
-                         "arterial_press_increased",
-                         "multiple_needle_sticks",
-                         "venous_press_increased",
-                         "infiltration_needle",
-                         "pain_chest",
-                         "pain_leg",
-                         "pain_elsewhere",
-                         "nausea_vomiting",
-                         "headache",
-                         "fever",
-                         "loss_consciousness",
-                         "weight_gain_excessive",
-                         "hypotension_problem")
-  
-  #adjust feature definition 
-  #data$age = data$age^2
-  data$ethnic = ifelse(data$ethnic=="Unknown" | is.na(data$ethnic), "Unknown", data$ethnic )
-  data$ethnic = ifelse(data$ethnic == "American Indian/Alaskan Native" | data$ethnic == "Filipino" | data$ethnic == "Pacific Islander", "Other",data$ethnic) 
-  data$bmi = ifelse(data$bmi<20,"low",ifelse(data$bmi<25,"normal",ifelse(data$bmi<35, "high", "very high")))
-  data$liver_disease = ifelse(data$mild_liver_disease ==1 | data$severe_liver_disease==1, 1,0)
-  data$access_type = ifelse(data$access_at_begin == 'fistula_usable' | data$access_at_begin == 'graft_usable', 'fistula/graft_ready', 'catheter_or_not_ready')
-  data$primary_renal_disease = ifelse(is.na(data$primary_renal_disease),"unknown",data$primary_renal_disease)
-  data$pain = ifelse(data$pain_chest==1 | data$pain_leg==1 |data$pain_elsewhere ==1, 1,0)
-  data$art_ven_pressure_increased =  ifelse(data$arterial_press_increased ==1 | data$venous_press_increased==1, 1,0)
-  data$start_year = as.numeric(substr(data$adj_fdod,1,4))
-  #edit null values for comorbidities (null -> 0)
-  replace_NAs = function(data){
-    data[is.na(data)]=0
-    return(data)
-  }
- data[,names(data) %in% c(str_comorb_features,str_compl_features)] = apply(data[,names(data) %in% c(str_comorb_features,str_compl_features)],2, replace_NAs)
- 
-  #drop some columns
-  data = dplyr::select(data,-c(fully_followed,access_at_begin))
- #temp: adj_fdod, pid removed from row above mild_liver_disease,severe_liver_disease
- 
-  #convert to factors:
-  data[, names(data) %in% c("art_ven_pressure_increased","sex","bmi","ethnic","resulting_autonomy","dead_first_year","epogen_usage","access_type","pain",str_comorb_features,"primary_renal_disease",str_compl_features)] = 
-    lapply(data[,names(data) %in% c("art_ven_pressure_increased","sex","bmi","ethnic","resulting_autonomy","dead_first_year","epogen_usage","access_type","pain",str_comorb_features,"primary_renal_disease",str_compl_features)], as.factor )
-
-  #set standard level of factors
-  data$resulting_autonomy = relevel(data$resulting_autonomy, ref = "normal")
-  data$bmi = relevel(data$bmi, ref = "normal/high")
-  data$primary_renal_disease = relevel(data$primary_renal_disease, ref = "other")
- 
- #set outcome
-#  if(outcome_type == "1 year"){
-#    data$outcome[data$dead_first_year == 0] = "Alive"
-#    data$outcome[data$dead_first_year == 1] = "Dead"
-#  }
-#  if(outcome_type == "6 months"){
-#    data$outcome[data$dead_half_year== 0] = "Alive"
-#    data$outcome[data$dead_half_year == 1] = "Dead"
-#  }
-#  if(outcome_type == "3 months"){
-#    data$outcome[data$dead_3_months== 0] = "Alive"
-#    data$outcome[data$dead_3_months == 1] = "Dead"
-#  }
-  #data$outcome[data$outcome== 0] = "Alive"
-  #data$outcome[data$outcome == 1] = "Dead"
-  data[,"outcome"] = as.factor(data[,"outcome"])
-#  data$dead_first_year = NULL 
-#  data$dead_half_year = NULL 
-#  data$dead_3_months = NULL 
-return(data) 
-}
-
-#_________________________________
-# CONVERT DATA TYPES
-# ________________________________
 convert_data_types_dyn=function(data){
   data = df.import
   str_comorb_features = c("diabetes_no_compl", 
@@ -197,8 +91,8 @@ convert_data_types_dyn=function(data){
   data$resulting_autonomy=ifelse(data$resulting_autonomy=="some_assistance","normal",data$resulting_autonomy) #only temporary solution
   data$ethnic = ifelse(data$ethnic=="Unknown" | is.na(data$ethnic)|data$ethnic == "American Indian/Alaskan Native" | data$ethnic == "Filipino" | data$ethnic == "Pacific Islander", "Unknown", data$ethnic )
   #data$ethnic = ifelse(data$ethnic == "American Indian/Alaskan Native" | data$ethnic == "Filipino" | data$ethnic == "Pacific Islander", "Other",data$ethnic) 
-  data$bmi = ifelse(data$bmi<20,"low",ifelse(data$bmi<25,"normal",ifelse(data$bmi<35, "high", "very high")))
-  #data$bmi = ifelse(data$bmi>20,"high/normal","low")
+  #data$bmi = ifelse(data$bmi<20,"low",ifelse(data$bmi<25,"normal",ifelse(data$bmi<35, "high", "very high")))
+  data$bmi = ifelse(data$bmi>20,"high/normal","low")
   data$liver_disease = ifelse(data$mild_liver_disease ==1 | data$severe_liver_disease==1, 1,0)
   #data$access_type = data$main_access_used
   data$access_type = ifelse(data$main_access_used == 'fistula' | data$main_access_used =='graft', 'fistula/graft_ready', data$main_access_used)
@@ -287,7 +181,7 @@ standardize_var = function(data){
       data[,i]=(data[,i] + (1- mean(data[,i])))/2    
     }
   }
-  #preparce ordinal variables
+  #prepare ordinal variables
   if ("resulting_autonomy" %in% names(data)) {
     #convert to num
     data$resulting_autonomy = as.numeric(data$resulting_autonomy)-1
@@ -298,6 +192,7 @@ standardize_var = function(data){
       lower_percentile = upper_percentile
     }
   }
+
   #scale to mean zero and unit stand. dev.
   for(i in 1:ncol(data)){
     if(is.numeric(data[,i]) && !names(data)[i] %in% c("outcome","access_type","bmi","avg_epo_dose_per_kg"))data[,i]=scale(data[,i], center=TRUE, scale=TRUE)
@@ -388,7 +283,7 @@ query_data_cox = function(last_period){
   strQuery = paste0("SELECT model.*,
                     IF((model.period+1) = death.period_of_death, 1,0)as event
                     FROM 03_model_exact model INNER JOIN 01_death_periods death ON model.pid = death.pid 
-                    WHERE model.period <= ", last_period," AND model.period > 0
+                    WHERE model.period <= ", last_period," AND model.period >= 0
                     AND (death.last_period_observed != model.period)")
   #}
   queried_data = dbGetQuery(con, strQuery)

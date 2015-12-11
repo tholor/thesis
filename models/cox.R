@@ -8,7 +8,7 @@ source("models\\helper_functions.R")
 #SETTINGS
 #______________________________________
 discretizeLabs = FALSE
-convert_labs_diff = TRUE
+convert_labs_diff = FALSE
 
 included_columns = c("age", "sex") #demographics
 included_columns = c(included_columns, "cci","hypertension","hypotension", "anemia", "pneumonia","diabetes_with_compl") # diagnoses
@@ -21,17 +21,16 @@ included_columns = c(included_columns, "resulting_autonomy","num_hospitalization
 included_columns = c(included_columns, "ktv","anticoagulants","tsat","hypotension_problem") #other
 
 #exclude not significant ones in log regression
-included_columns = included_columns[!(included_columns %in% c("hypertension", "hypotension","calcXphosph", "epogen_usage",
-                                                              "phosphorus","num_no_shows","num_time_decreased_by_pat",
-                                                             "access_flow_poor","creatinine"))]
-last_period = 24
+included_columns = included_columns[!(included_columns %in% c("hypotension","calcXphosph",
+                                                              "phosphorus","co2","num_no_shows","num_time_decreased_by_pat"))]
+last_period = 36
 standardize=FALSE
 aggregate = TRUE
 var_to_aggregate = c("anti_hypertensive_med")
 write_to_db = FALSE
 impute_death_period = FALSE
 write_coeffs = TRUE
-FileExcelCoeffs = "output\\cox\\coeffs_13_0_to_24_ktv_and_more.xlsx"
+FileExcelCoeffs = "output\\cox\\coeffs_16_0_to_36_report.xlsx"
 #______________________________________
 # IMPORT DATA #
 #______________________________________
@@ -54,35 +53,44 @@ df.preProcess_compl = df.preProcess #store all records for prediction
 #exlude non-complete cases
 df.preProcess = df.preProcess[complete.cases(df.preProcess),]
 if(standardize){df.preProcess = standardize_var(df.preProcess)}
-if(write_to_db){write_to_database(df.preProcess, paste0("02_cohort_from_r_at_",assessment_time,"cox_at_1"))}
+if(write_to_db){write_to_database(df.preProcess, paste0("02_cohort_from_r_cox_race"))}
 #df.preProcess = df.preProcess[,!(names(df.preProcess) %in% c("pid"))]
 description_cohort_post = describe_cohort(df.preProcess,"")
 description_cohort_post_at_1 = describe_cohort(filter(df.preProcess,start==1),"")
 
-#######MODEL###########
 
+#___________________________________________________________
+# Model fitting
+#___________________________________________________________
 train_data = df.preProcess[,!(names(df.preProcess) %in% c("pid"))]
 #surv_object = Surv(time=train_data$start,time2=train_data$stop,event=train_data$event)
 
 #surv_object2 = Surv(train_data$start+1,train_data$event)
 #coxph <- coxph(surv_object~ age+albumin, data = train_data)  
 #cox <- coxph(Surv(time=start,time2=stop,event=event)~ ., data = train_data[,!names(train_data) %in% c("event","start","stop")], model = TRUE, method = "breslow")  
-set.seed(23)
-cox <- coxph(Surv(time=start,time2=stop,event=event)~ ., data = train_data, model = TRUE, method = "efron")  
-#cox <- coxph(Surv(time=start,time2=stop,event=event)~ access_type+age+resulting_autonomy+albumin, data = train_data, model = TRUE, method = "efron")  
+set.seed(50)
+train_data$ageXt = train_data$age*train_data$start  
+#train_data$ageXt = NULL
+cox <- coxph(Surv(time=start,time2=stop,event=event)~ ., data = train_data, model = TRUE, method = "efron") 
+cox_violated <- coxph(Surv(time=start,time2=stop,event=event)~ . -ageXt, data = train_data, model = TRUE, method = "efron")  
+#cox <- coxph(Surv(time=start,time2=stop,event=event)~ tsat, data = train_data, model = TRUE, method = "efron")  
+summary(cox_violated)
 summary(cox)
+
+#detection of influential obs. with residuals
 #rr = resid(cox, type="dfbeta")
 #plot(1:15283, rr[,8])
 #r = as.data.frame(rr)
 #rr[(rr[,8] < -0.02),8]
 #cox <- coxph(Surv(time=start,time2=stop,event=event)~ sex+eGFR, data = train_data, model = TRUE, method = "efron")  
-
 #cox
 #plot(basehaz(cox))
 
-#with rms package
+#___________________________________________________________
+# Performance evaluation with rms package
+#___________________________________________________________
 library(rms)
-cox_rms = cph(Surv(start,stop,event)~ ., data = train_data, x=T, y=T,surv=T, dxy=TRUE, time.inc=1)
+cox_rms = cph(Surv(start,stop,event)~ ., data = train_data[,!names(train_data) %in% c("ageXt")], x=T, y=T,surv=T, dxy=TRUE, time.inc=1, method = "efron")
 print(cox_rms)
 #do 10 times 5-fold CV
 c_index = c(1:10)
@@ -96,7 +104,9 @@ avg_c_index = mean(c_index) #similar to AUC
 #calibration
 #c1 <- calibrate(cox_rms, u =1)  
 
-######prediction with survfit for individual data
+#___________________________________________________________
+# Prediction with survfit for individual data
+#___________________________________________________________
 predict_cox = function(cox_model, ind_pid, df.preProcess_compl, last_period){
   test_data = filter(df.preProcess_compl,pid==ind_pid)
   last_obs = nrow(test_data)
@@ -117,21 +127,21 @@ predict_cox = function(cox_model, ind_pid, df.preProcess_compl, last_period){
  # show(test_data)
   return(summary(survfit(cox, newdata=test_data, id = pid)))
 }
-predict_cox(cox,"LIB0000017458",df.preProcess_compl,last_period)
+#predict_cox(cox,"LIB0000017458",df.preProcess_compl,last_period)
 
-#predict(coxph,)
-#with penalize package
-# library(penalized)
-# pen = optL1(surv_object, penalized = ~ age+albumin+phosphorus+resulting_autonomy+hgb+potassium, data = train_data, model="cox", fold=5)
-# #basehaz(penalized_cox$fullfit)
-# 
-# #test for constant coefficients over time
-ph_test = cox.zph(cox)
+#___________________________________________________________
+# #test for constant coefficients over time (PH assumption)
+#___________________________________________________________
+ph_test = cox.zph(cox, transform = "identity")
 ph_test
- plot(ph_test[15])
+ plot(ph_test[1])
+abline(coef(cox)[c(1,38)], col = "red", lty=2)
 
-#write results
+#___________________________________________________________
+# write results to file
+#___________________________________________________________
 if(write_coeffs){
+  file.copy("output\\cox\\template.xlsx", FileExcelCoeffs)
   table_coeff = as.data.frame(summary(cox)$coefficients)
   table_coeff$sign = ifelse(table_coeff$"Pr(>|z|)"< 0.001, "***", 
                             ifelse(table_coeff$"Pr(>|z|)"< 0.01, "**",
@@ -173,3 +183,16 @@ if(write_coeffs){
 #    corMat = as.data.frame(cor(corData))
 #    write.table(corMat, file = "C:\\Users\\Malte\\Dropbox\\FIM\\08 Masterarbeit\\06 Coding\\R\\output\\correlation_cohort_cox3.csv", sep = ";")
 # 
+# 
+# aut = as.data.frame(table(train_data$start))
+# aut$limited = as.data.frame(table(filter(train_data, resulting_autonomy == "limited")$start))$Freq
+# aut$normal = as.data.frame(table(filter(train_data, resulting_autonomy == "normal")$start))$Freq
+# aut$special = as.data.frame(table(filter(train_data, resulting_autonomy == "special care")$start))$Freq
+# names(aut) = c("period","total","limited","normal","special_care")
+# aut$perc_normal =  aut$normal /aut$total
+# aut$perc_limited =  aut$limited/aut$total
+# aut$perc_special_care = aut$special_care/aut$total
+# 
+# library(reshape)
+# melted = melt(aut[,c(1,6,7,8)],id="period")
+# ggplot(data=melted, aes(x=period, y=value, colour = variable, group=variable))+ geom_line()
