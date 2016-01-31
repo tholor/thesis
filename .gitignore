@@ -5,3 +5,8 @@ basic_R_summaries.xlsx
 df_hemo
 df_vital
 ~$basic_R_summaries.xlsx
+test.xlsx
+output/
+corr.png
+corr2.png
+pred1.csv

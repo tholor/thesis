@@ -1,5 +1,9 @@
 #IMPORT DATA
 query_data_dyn = function(table,outcome_time,assessment_time, old_input){
+#   table = "03_model_exact"
+#   outcome_time = 24
+#   assessment_time = 12
+#   old_input = FALSE
   con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
   #get features
   if(assessment_time == 0 && old_input == "TRUE"){
@@ -14,10 +18,15 @@ query_data_dyn = function(table,outcome_time,assessment_time, old_input){
   #assess if patient is dead(=>1) within the horizon (outcome_time) or alive(=>0) or censored(=> NULL)
   queried_outcomes$outcome = ifelse(queried_outcomes$period_of_death<=outcome_time,1,
                                     ifelse(queried_outcomes$period_of_death>outcome_time,0,NA))
-  queried_outcomes$outcome=ifelse(is.na(queried_outcomes$period_of_death) & queried_outcomes$last_period_observed>=outcome_time,0,queried_outcomes$outcome)
-  queried_outcomes$period_of_death = NULL
-  queried_outcomes$last_period_observed = NULL
+  queried_outcomes$outcome=ifelse(is.na(queried_outcomes$period_of_death) & queried_outcomes$last_period_observed>outcome_time,0,queried_outcomes$outcome)
+
   merged_data = merge(queried_data, queried_outcomes, by="pid")
+  #remove patients who die in the period of assessment (assessment_time) => otherwise bias possible and comparability to other models harder
+  #merged_data = filter(merged_data, is.na(period_of_death) |  period_of_death != assessment_time)
+  merged_data = filter(merged_data, last_period_observed > assessment_time)
+  
+  merged_data$period_of_death = NULL
+  merged_data$last_period_observed = NULL
   #close DB-Connection
   dbDisconnect(con)
   return(merged_data)
@@ -27,7 +36,7 @@ query_data_dyn = function(table,outcome_time,assessment_time, old_input){
 # CONVERT DATA TYPES
 # ________________________________
 convert_data_types_dyn=function(data){
-  data = df.import
+  #data = df.import
   str_comorb_features = c("diabetes_no_compl", 
                           "diabetes_with_compl", 
                           "chf", 
@@ -58,7 +67,8 @@ convert_data_types_dyn=function(data){
                           "benign_or_uncertain_tumor",
                           "cerebrovascular",
                           "anemia",
-                          "pneumonia")
+                          "pneumonia",
+                          "recent_pneumonia")
   
   str_compl_features = c("access_problem",
                          "access_flow_poor",
@@ -147,7 +157,7 @@ discretize_labs = function(data){
   #data$hgb = as.factor(ifelse((data$hgb >11| data$hgb  <10)&data$epogen_usage==1 | (data$hgb <11 &data$epogen_usage==0), "out_of_range","in_range"))
   data$hgb = as.factor(ifelse(data$hgb < 10, "lower","in_range"))
   data$calcium = as.factor(ifelse(data$calcium <8.4, "lower",ifelse(data$calcium >9.5,"higher","in_range")))
-     #mutate(potassium = ifelse(albumin<3.7, "low","in_range")
+     #mutate(potassium = ifelse(potassium<3.7, "low","in_range")
   #data$phosphorus = as.factor(ifelse(data$phosphorus<3.5, "low",ifelse(data$phosphorus>5.5,"high","in_range")))
   data$calcXphosph = as.factor(ifelse(data$calcXphosph>55, "higher","in_range"))
   #data$ferritin = as.factor(ifelse( data$ferritin<200 &data$epogen_usage==1, "low","in_range"))
@@ -296,6 +306,21 @@ query_data_cox = function(last_period){
   return(queried_data)
 }
 
+query_data_landmark = function(last_period){
+  con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
+  strQuery = paste0("SELECT model.*,
+                    death.last_period_observed as survtime,
+                    (CASE WHEN death.dod is not null THEN 1 ELSE 0 END) as status
+                    FROM 03_model_exact model INNER JOIN 01_death_periods death ON model.pid = death.pid 
+                    WHERE model.period <= ", last_period,"
+                    AND (death.last_period_observed != model.period)")
+  #CHANGED: Where condition included model.period >= 0
+  queried_data = dbGetQuery(con, strQuery)  
+  #close DB-Connection
+  dbDisconnect(con)
+  return(queried_data)
+}
+
 query_data_cox_fixed = function(assessment_time){
   con = dbConnect(MySQL(), dbname='dbo', user='root', password='', host = 'localhost')
   #   if(assessment_time == 0){
@@ -366,7 +391,56 @@ get_levels = function(column){
   return(vect)
 }
 
+#prepares a landmark data set (edited version of the original function in the dynpred package: allows multiple time-varying covariates)
 
+cutLM2 <- function(data, outcome, LM, horizon, covs,
+                   format = c("wide","long"), id, rtime, right=TRUE)
+{
+  format <- match.arg(format)
+  if (format=="wide") {
+    LMdata <- data
+    if (!is.null(covs$varying))
+      LMdata[[covs$varying]] <- 1 - as.numeric(LMdata[[covs$varying]] > LM)
+  } else {
+    if (missing(id))
+      stop("argument 'id' should be specified for long format data")
+    if (missing(rtime))
+      stop("argument 'rtime' should be specified for long format data")
+    ord <- order(data[[id]],data[[rtime]])
+    data <- data[ord,]
+    ids <- unique(data[[id]])
+    n <- length(ids)
+    # initialize LMdata; copy first row of each subject
+    LMdata <- data[which(!duplicated(data[[id]])),]
+    for (i in 1:n) {
+      wh <- which(data[[id]]==ids[i])
+      di <- data[wh,]
+      idx <- cut(LM,c(data[[rtime]][wh],Inf),right=right,labels=FALSE)
+      if (!is.na(idx)) LMdata[i,] <- di[idx,]
+      else {
+        LMdata[i,] <- di[1,]
+        #set varying covs to NA
+        for(var in 1:length(covs$varying))
+          LMdata[[covs$varying[var]]][i] <- NA
+        #LMdata[[rtime]][i] <- NA
+      } 
+    }
+  }
+  LMdata <- LMdata[LMdata[[outcome$time]] > LM,]
+  if (format=="long") LMdata <- LMdata[!is.na(LMdata[[id]]),]
+  # apply administrative censoring at horizon
+  LMdata[outcome$status] <- LMdata[[outcome$status]] *
+    as.numeric(LMdata[[outcome$time]] <= horizon)
+  LMdata[outcome$time] <- pmin(as.vector(LMdata[[outcome$time]]),horizon)
+  LMdata$LM <- LM
+  if (format=="long")
+    cols <- match(c(id,outcome$time,outcome$status,covs$fixed,covs$varying,rtime,"LM"),
+                  names(LMdata))
+  else
+    cols <- match(c(outcome$time,outcome$status,covs$fixed,covs$varying,"LM"),
+                  names(LMdata))
+  return(LMdata[,cols])
+}
 #NORMALIZATION??
 
 # #Markov blanket

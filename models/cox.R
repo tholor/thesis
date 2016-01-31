@@ -23,13 +23,13 @@ included_columns = c(included_columns, "ktv","anticoagulants","tsat","hypotensio
 #exclude not significant ones in log regression
 included_columns = included_columns[!(included_columns %in% c("hypotension","calcXphosph",
                                                               "phosphorus","co2","num_no_shows","num_time_decreased_by_pat"))]
-last_period = 36
+last_period = 12
 standardize=FALSE
 aggregate = TRUE
 var_to_aggregate = c("anti_hypertensive_med")
 write_to_db = FALSE
 impute_death_period = FALSE
-write_coeffs = TRUE
+write_coeffs = FALSE
 FileExcelCoeffs = "output\\cox\\coeffs_16_0_to_36_report.xlsx"
 #______________________________________
 # IMPORT DATA #
@@ -134,7 +134,7 @@ predict_cox = function(cox_model, ind_pid, df.preProcess_compl, last_period){
 #___________________________________________________________
 ph_test = cox.zph(cox, transform = "identity")
 ph_test
- plot(ph_test[1])
+ plot(ph_test[39])
 abline(coef(cox)[c(1,38)], col = "red", lty=2)
 
 #___________________________________________________________
