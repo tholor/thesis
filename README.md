@@ -1,6 +1,7 @@
 # Summary
 Code for the Cox Model and log. regression used in my paper ["Exploring Dynamic Risk Prediction for Dialysis Patients"](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5333314/) 
-The java code for the dynamic bayesian network can be found here: https://github.com/tholor/dbn
+
+The java code for the Dynamic Bayesian Network can be found here: https://github.com/tholor/dbn
 
 
 # Context  
